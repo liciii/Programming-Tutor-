@@ -1,0 +1,6 @@
+node_modules/
+.env
+server/data/users/
+server/data/profiles/
+dist/
+.DS_Store

@@ -1,0 +1,18 @@
+# Normalize all text files to LF in the repo and on disk.
+# This prevents the "LF will be replaced by CRLF" warnings on Windows
+# and ensures Linux containers (Docker) always receive LF line endings.
+* text=auto eol=lf
+
+# Explicitly mark binary files so Git never touches their line endings.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary

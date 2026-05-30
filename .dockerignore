@@ -1,0 +1,20 @@
+# Dependencies
+node_modules
+client/node_modules
+server/node_modules
+
+# Build output
+client/dist
+
+# Environment secrets — pass these at runtime via docker-compose or -e flags
+server/.env
+.env
+
+# Dev/test artefacts
+server/coverage
+server/tests
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log

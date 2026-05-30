@@ -3,7 +3,6 @@ import { api } from '../services/api';
 
 const AuthContext = createContext(null);
 
-// Set to true to bypass API calls and explore pages
 const DEV_MODE = true;
 const DEV_USER = { id: 'dev-user', name: 'Test User', email: 'test@example.com' };
 

@@ -1,6 +1,6 @@
-import fs from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { readJSON, writeJSON } from '../utils/fileLock.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -11,62 +11,44 @@ function profilePath(userId) {
   return join(PROFILES_DIR, `${userId}.json`);
 }
 
-export function getProfile(userId) {
-  const path = profilePath(userId);
-  if (!fs.existsSync(path)) return null;
-  return JSON.parse(fs.readFileSync(path, 'utf-8'));
+export async function getProfile(userId) {
+  return readJSON(profilePath(userId));
 }
 
-export function saveProfile(userId, profile) {
-  const data = {
-    ...profile,
-    userId,
-    updatedAt: new Date().toISOString(),
-  };
-  fs.writeFileSync(profilePath(userId), JSON.stringify(data, null, 2));
+export async function saveProfile(userId, profile) {
+  const data = { ...profile, userId, updatedAt: new Date().toISOString() };
+  await writeJSON(profilePath(userId), data);
   return data;
 }
 
-export function updateProfile(userId, updates) {
-  const existing = getProfile(userId) || {};
+export async function updateProfile(userId, updates) {
+  const existing = (await getProfile(userId)) ?? {};
   return saveProfile(userId, { ...existing, ...updates });
 }
 
-export function appendSessionHistory(userId, entry) {
-  const profile = getProfile(userId);
+export async function appendSessionHistory(userId, entry) {
+  const profile = await getProfile(userId);
   if (!profile) return null;
-  const history = profile.sessionHistory || [];
+  const history = profile.sessionHistory ?? [];
   history.push({ ...entry, timestamp: new Date().toISOString() });
-  // Keep last 50 entries
   if (history.length > 50) history.splice(0, history.length - 50);
   return updateProfile(userId, { sessionHistory: history });
 }
 
-export function appendChatHistory(userId, chat) {
-  const profile = getProfile(userId);
+export async function appendChatHistory(userId, chat) {
+  const profile = await getProfile(userId);
   if (!profile) return null;
-  const history = profile.chatHistory || [];
+  const history = profile.chatHistory ?? [];
   history.unshift({
     id: Date.now().toString(),
     createdAt: new Date().toISOString(),
     messages: chat,
   });
-  // Keep last 50 chats
   if (history.length > 50) history.splice(50);
   return updateProfile(userId, { chatHistory: history });
 }
 
-export function isProfileComplete(profile) {
-  if (!profile) return false;
-  return !!(
-    profile.programmingLevel &&
-    profile.targetLanguage &&
-    profile.learningStyle &&
-    profile.topics?.length > 0
-  );
-}
-
-export function createEmptyProfile(userId) {
+export async function createEmptyProfile(userId) {
   return saveProfile(userId, {
     programmingLevel: null,
     targetLanguage: null,

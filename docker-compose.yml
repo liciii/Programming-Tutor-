@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      # Persist user data (profiles, templates, uploads) across restarts
+      - tutor_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  tutor_data:

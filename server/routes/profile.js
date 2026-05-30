@@ -1,27 +1,78 @@
 import express from 'express';
-import { getProfile, updateProfile } from '../services/profileService.js';
+import { getProfile, updateProfile, appendChatHistory } from '../services/profileService.js';
 import { chatCompletion } from '../services/llmService.js';
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
-  const profile = getProfile(req.user.id);
+// Fields a user is permitted to update directly.
+// Anything not in this set is silently ignored, preventing privilege escalation.
+const MUTABLE_FIELDS = new Set([
+  'programmingLevel', 'targetLanguage', 'learningStyle',
+  'topics', 'interests', 'strengths', 'weaknesses',
+  'preferredLLM', 'customApiKeys', 'externalSources',
+]);
+
+function sanitizeProfileUpdate(body, existing) {
+  const result = {};
+  for (const key of MUTABLE_FIELDS) {
+    if (key in body) result[key] = body[key];
+  }
+
+  // Validate customApiKeys — accept exactly the three supported providers
+  if (result.customApiKeys !== undefined) {
+    const incoming = result.customApiKeys;
+    const prev = existing?.customApiKeys || {};
+    result.customApiKeys = {
+      openai:    typeof incoming.openai    === 'string' ? incoming.openai.trim()    : (prev.openai    || ''),
+      gemini:    typeof incoming.gemini    === 'string' ? incoming.gemini.trim()    : (prev.gemini    || ''),
+      anthropic: typeof incoming.anthropic === 'string' ? incoming.anthropic.trim() : (prev.anthropic || ''),
+    };
+  }
+
+  // Validate externalSources structure
+  if (result.externalSources !== undefined) {
+    if (!Array.isArray(result.externalSources)) {
+      delete result.externalSources;
+    } else {
+      result.externalSources = result.externalSources
+        .filter(s => s && typeof s.url === 'string')
+        .map(s => ({
+          id: s.id || Date.now().toString(),
+          url: s.url,
+          addedAt: s.addedAt || new Date().toISOString(),
+        }));
+    }
+  }
+
+  return result;
+}
+
+router.get('/', async (req, res) => {
+  const profile = await getProfile(req.user.id);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
-  res.json(profile);
+
+  // Strip actual key values — return only which providers have a key configured
+  const { customApiKeys, ...safeProfile } = profile;
+  safeProfile.customApiKeysSet = Object.keys(customApiKeys || {}).filter(k => customApiKeys[k]);
+  res.json(safeProfile);
 });
 
-router.put('/', (req, res) => {
-  const updated = updateProfile(req.user.id, req.body);
-  res.json(updated);
+router.put('/', async (req, res) => {
+  const existing = await getProfile(req.user.id);
+  const safeUpdates = sanitizeProfileUpdate(req.body, existing);
+  const updated = await updateProfile(req.user.id, safeUpdates);
+  // Strip key values from response as well
+  const { customApiKeys, ...safe } = updated;
+  safe.customApiKeysSet = Object.keys(customApiKeys || {}).filter(k => customApiKeys[k]);
+  res.json(safe);
 });
 
-// Append a completed chat session to the user's history
-router.post('/chat-history', (req, res) => {
+router.post('/chat-history', async (req, res) => {
   const { messages } = req.body;
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Messages are required' });
   }
-  const updated = appendChatHistory(req.user.id, messages);
+  const updated = await appendChatHistory(req.user.id, messages);
   res.json(updated);
 });
 
@@ -30,86 +81,78 @@ router.post('/chat-history', (req, res) => {
 //
 // Three-phase approach to avoid relying on inaccurate self-evaluation:
 //
-// PHASE 1 — INTAKE (messages 1–3)
+// PHASE 1 — INTAKE (messages 1–2)
 //   Collect language, topics, learning style, interests conversationally.
 //   Ask for a rough self-assessed level but treat it only as a prior.
 //
-// PHASE 2 — DIAGNOSTIC (messages 4–6)
+// PHASE 2 — DIAGNOSTIC (messages 3–5)
 //   Embed 2 targeted coding questions matched to their stated language.
-//   Questions are open-ended (not multiple choice) so vocabulary, accuracy,
-//   and confidence of the answer can all be observed.
-//   The LLM evaluates the response against a rubric and records evidence.
+//   Questions are open-ended so vocabulary, accuracy, and confidence can
+//   all be observed.  The LLM evaluates responses and records evidence.
 //
 // PHASE 3 — CALIBRATION & COMMIT
 //   Reconcile self-reported level with diagnostic evidence.
-//   If they diverge, the evidence wins. Commit the resolved profile.
-//   The student never sees the calibration logic — it is invisible.
+//   If they diverge, the evidence wins.  The student never sees this logic.
 // ---------------------------------------------------------------------------
 
 router.post('/onboarding/chat', async (req, res) => {
   try {
     const { messages } = req.body;
-    const profile = getProfile(req.user.id);
+    const profile = await getProfile(req.user.id);
 
-    // Count only user turns to track progress through the phases
     const userTurns = messages.filter(m => m.role === 'user').length;
-
-    // Determine current phase
-    // Phase 1: turns 1-2  — intake (language, goals, style, interests, self-level)
-    // Phase 2: turns 3-5  — diagnostic questions embedded naturally
-    // Phase 3: turn 6+    — reconcile and finalise
     const phase = userTurns <= 2 ? 1 : userTurns <= 5 ? 2 : 3;
 
-    // Partial profile state passed into every prompt so the LLM knows
-    // what has already been collected and what is still missing
     const collectedSoFar = {
-      selfReportedLevel: profile?.selfReportedLevel || null,
-      targetLanguage:    profile?.targetLanguage    || null,
-      topics:            profile?.topics            || null,
-      learningStyle:     profile?.learningStyle     || null,
-      interests:         profile?.interests         || null,
+      selfReportedLevel:  profile?.selfReportedLevel  || null,
+      targetLanguage:     profile?.targetLanguage     || null,
+      topics:             profile?.topics             || null,
+      learningStyle:      profile?.learningStyle      || null,
+      interests:          profile?.interests          || null,
       diagnosticEvidence: profile?.diagnosticEvidence || [],
     };
 
     const systemPrompt = buildOnboardingPrompt(phase, collectedSoFar);
     const reply = await chatCompletion({ messages, systemPrompt });
 
-    // -----------------------------------------------------------------------
-    // Intermediate profile saves after phase 1 so partial data is not lost
-    // -----------------------------------------------------------------------
     if (phase === 1) {
       const partial = await extractPartialProfile(messages, reply);
-      if (partial) updateProfile(req.user.id, partial);
+      if (partial) await updateProfile(req.user.id, partial);
       return res.json({ reply, onboardingComplete: false, phase: 1 });
     }
 
-    // -----------------------------------------------------------------------
-    // After each diagnostic turn, extract and save the evidence the LLM
-    // observed about the student's actual competency
-    // -----------------------------------------------------------------------
     if (phase === 2) {
       const evidence = await extractDiagnosticEvidence(messages, reply);
       if (evidence) {
         const existing = profile?.diagnosticEvidence || [];
-        updateProfile(req.user.id, { diagnosticEvidence: [...existing, evidence] });
+        await updateProfile(req.user.id, { diagnosticEvidence: [...existing, evidence] });
       }
       return res.json({ reply, onboardingComplete: false, phase: 2 });
     }
 
-    // -----------------------------------------------------------------------
     // Phase 3 — reconcile and commit
-    // -----------------------------------------------------------------------
     const END_MARKER = 'END_ONBOARDING:';
     if (reply.includes(END_MARKER)) {
-      const jsonStart = reply.indexOf(END_MARKER) + END_MARKER.length;
-      const extracted = JSON.parse(reply.substring(jsonStart).trim());
+      const markerIdx = reply.indexOf(END_MARKER);
+      const jsonStr = reply.substring(markerIdx + END_MARKER.length).trim();
 
-      // Reconcile: override self-reported level with calibrated level
+      // Extract the JSON object even if the LLM appended trailing text
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        // Malformed marker — keep the conversation going
+        return res.json({ reply: reply.substring(0, markerIdx).trim() || "Almost there! Let me gather just a bit more.", onboardingComplete: false, phase: 3 });
+      }
+
+      let extracted;
+      try {
+        extracted = JSON.parse(jsonMatch[0]);
+      } catch {
+        return res.json({ reply: reply.substring(0, markerIdx).trim() || "Almost there! Let me gather just a bit more.", onboardingComplete: false, phase: 3 });
+      }
+
       const finalProfile = {
         ...extracted,
-        // Keep the raw self-report for research/transparency
         selfReportedLevel: collectedSoFar.selfReportedLevel,
-        // programmingLevel in extracted is now the evidence-based calibrated level
         diagnosticEvidence: profile?.diagnosticEvidence || [],
         onboardingComplete: true,
         calibrationNote: extracted.programmingLevel !== collectedSoFar.selfReportedLevel
@@ -117,15 +160,14 @@ router.post('/onboarding/chat', async (req, res) => {
           : `Self-reported level confirmed by diagnostic.`,
       };
 
-      updateProfile(req.user.id, finalProfile);
+      await updateProfile(req.user.id, finalProfile);
 
-      const cleanReply = reply.substring(0, reply.indexOf(END_MARKER)).trim() ||
+      const cleanReply = reply.substring(0, markerIdx).trim() ||
         "Great — I've got a clear picture of where you are. Your personalised tutor is ready. Let's get started!";
 
       return res.json({ reply: cleanReply, onboardingComplete: true, profile: finalProfile });
     }
 
-    // Still in phase 3 but not yet ready to commit — keep conversing
     res.json({ reply, onboardingComplete: false, phase: 3 });
 
   } catch (err) {
@@ -185,7 +227,6 @@ Internally note (but do NOT state aloud):
 These observations will be used to calibrate their level.`;
   }
 
-  // Phase 3
   return base + `
 PHASE: CALIBRATION AND COMMIT
 You now have enough information to finalise the learner profile.
@@ -207,7 +248,6 @@ The programmingLevel field must reflect your calibrated assessment, NOT simply e
 
 // ---------------------------------------------------------------------------
 // EXTRACTION HELPERS
-// Called after phase 1 and phase 2 turns to persist partial data
 // ---------------------------------------------------------------------------
 
 async function extractPartialProfile(messages, lastReply) {
@@ -217,7 +257,12 @@ Fields: selfReportedLevel (string), targetLanguage (string), topics (array), lea
 Do not infer or guess. Only extract what was explicitly stated by the user.`;
 
   try {
-    const context = messages.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n');
+    // Include the last assistant reply so the extractor sees any confirmed summaries
+    const context = [
+      ...messages.slice(-4).map(m => `${m.role}: ${m.content}`),
+      `assistant: ${lastReply}`,
+    ].join('\n');
+
     const result = await chatCompletion({
       messages: [{ role: 'user', content: context }],
       systemPrompt,
@@ -249,7 +294,7 @@ Base suggestedLevel only on what was demonstrated in this response, not on what 
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return null;
     const result = await chatCompletion({
-      messages: [{ role: 'user', content: `Student response to diagnostic question: "${lastUserMsg.content}"` }],
+      messages: [{ role: 'user', content: `Student response to diagnostic question: "${lastUserMsg.content}"\n\nTutor reply: "${lastReply}"` }],
       systemPrompt,
       jsonMode: true,
     });

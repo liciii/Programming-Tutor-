@@ -1,7 +1,7 @@
-import fs from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import { readJSON, writeJSON } from '../utils/fileLock.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -90,41 +90,39 @@ Your task: Ask ONE multiple-choice or short-answer quiz question targeting their
   },
 ];
 
-function readTemplates() {
-  if (!fs.existsSync(TEMPLATES_FILE)) return [];
-  return JSON.parse(fs.readFileSync(TEMPLATES_FILE, 'utf-8'));
+async function readTemplates() {
+  return (await readJSON(TEMPLATES_FILE)) ?? [];
 }
 
-function writeTemplates(templates) {
-  fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(templates, null, 2));
+async function writeTemplates(templates) {
+  return writeJSON(TEMPLATES_FILE, templates);
 }
 
-export function seedDefaultTemplates() {
-  const existing = readTemplates();
-  const existingIds = existing.map(t => t.id);
-  const toAdd = DEFAULT_TEMPLATES.filter(t => !existingIds.includes(t.id));
+export async function seedDefaultTemplates() {
+  const existing = await readTemplates();
+  const existingIds = new Set(existing.map(t => t.id));
+  const toAdd = DEFAULT_TEMPLATES.filter(t => !existingIds.has(t.id));
   if (toAdd.length > 0) {
-    writeTemplates([...existing, ...toAdd]);
+    await writeTemplates([...existing, ...toAdd]);
     console.log(`Seeded ${toAdd.length} default templates.`);
   }
 }
 
-export function getAllTemplates(userId) {
-  const all = readTemplates();
-  // Return default templates + this user's custom templates
+export async function getAllTemplates(userId) {
+  const all = await readTemplates();
   return all.filter(t => t.isDefault || t.ownerId === userId);
 }
 
-export function getTemplateById(id, userId) {
-  const all = readTemplates();
+export async function getTemplateById(id, userId) {
+  const all = await readTemplates();
   const t = all.find(t => t.id === id);
   if (!t) return null;
   if (!t.isDefault && t.ownerId !== userId) return null;
   return t;
 }
 
-export function createTemplate(userId, data) {
-  const templates = readTemplates();
+export async function createTemplate(userId, data) {
+  const templates = await readTemplates();
   const newTemplate = {
     id: uuidv4(),
     ownerId: userId,
@@ -133,37 +131,35 @@ export function createTemplate(userId, data) {
     ...data,
   };
   templates.push(newTemplate);
-  writeTemplates(templates);
+  await writeTemplates(templates);
   return newTemplate;
 }
 
-export function updateTemplate(id, userId, updates) {
-  const templates = readTemplates();
+export async function updateTemplate(id, userId, updates) {
+  const templates = await readTemplates();
   const idx = templates.findIndex(t => t.id === id);
-  if (idx === -1) return null;
+  if (idx === -1) return { statusCode: 404, error: 'Not found' };
   const t = templates[idx];
-  if (t.isDefault) return { error: 'Cannot edit default templates' };
-  if (t.ownerId !== userId) return { error: 'Forbidden' };
+  if (t.isDefault) return { statusCode: 403, error: 'Cannot edit default templates' };
+  if (t.ownerId !== userId) return { statusCode: 403, error: 'Forbidden' };
   templates[idx] = { ...t, ...updates, updatedAt: new Date().toISOString() };
-  writeTemplates(templates);
+  await writeTemplates(templates);
   return templates[idx];
 }
 
-export function deleteTemplate(id, userId) {
-  const templates = readTemplates();
+export async function deleteTemplate(id, userId) {
+  const templates = await readTemplates();
   const t = templates.find(t => t.id === id);
-  if (!t) return { error: 'Not found' };
-  if (t.isDefault) return { error: 'Cannot delete default templates' };
-  if (t.ownerId !== userId) return { error: 'Forbidden' };
-  writeTemplates(templates.filter(t => t.id !== id));
+  if (!t) return { statusCode: 404, error: 'Not found' };
+  if (t.isDefault) return { statusCode: 403, error: 'Cannot delete default templates' };
+  if (t.ownerId !== userId) return { statusCode: 403, error: 'Forbidden' };
+  await writeTemplates(templates.filter(t => t.id !== id));
   return { success: true };
 }
 
-export function buildSystemPrompt(templateId, profile, userId) {
-  const template = getTemplateById(templateId, userId);
+export async function buildSystemPrompt(templateId, profile, userId) {
+  const template = await getTemplateById(templateId, userId);
   if (!template) return null;
-
-  let prompt = template.systemPrompt;
 
   const replacements = {
     '{{programmingLevel}}': profile.programmingLevel || 'beginner',
@@ -175,10 +171,10 @@ export function buildSystemPrompt(templateId, profile, userId) {
     '{{topics}}': (profile.topics || []).join(', ') || 'general programming',
   };
 
-  Object.entries(replacements).forEach(([key, val]) => {
+  let prompt = template.systemPrompt;
+  for (const [key, val] of Object.entries(replacements)) {
     prompt = prompt.replaceAll(key, val);
-  });
-
+  }
   return prompt;
 }
 

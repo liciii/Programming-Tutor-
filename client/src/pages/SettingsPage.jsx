@@ -19,7 +19,7 @@ const PROVIDERS = [
   },
   {
     id: 'gemini',
-    label: 'Google Gemini 2.0 Flash',
+    label: 'Google Gemini 3.0 Flash',
     keyLabel: 'Gemini API Key',
     keyPlaceholder: 'AIza...',
     envVar: 'GEMINI_API_KEY',
@@ -88,13 +88,13 @@ function ProfileTab() {
     setSaving(true);
     try {
       await api.put('/profile', {
-        programmingLevel: profile.programmingLevel,
-        targetLanguage:   profile.targetLanguage,
-        learningStyle:    profile.learningStyle,
-        topics:           profile.topics,
-        interests:        profile.interests,
-        strengths:        profile.strengths,
-        weaknesses:       profile.weaknesses,
+        programmingLevel:  profile.programmingLevel,
+        targetLanguage:    profile.targetLanguage,
+        learningStyle:     profile.learningStyle,
+        topics:            profile.topics,
+        realLifeInterests: profile.realLifeInterests,
+        strengths:         profile.strengths,
+        weaknesses:        profile.weaknesses,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -144,9 +144,9 @@ function ProfileTab() {
             placeholder="e.g. loops, functions, data structures" />
         </Field>
 
-        <Field label="Personal interests" hint="Used for real-world examples">
-          <input className="input-base" value={(profile.interests || []).join(', ')} onChange={setArray('interests')}
-            placeholder="e.g. gaming, music, football" />
+        <Field label="Real-life interests" hint="Drawn on when giving coding examples">
+          <input className="input-base" value={(profile.realLifeInterests || []).join(', ')} onChange={setArray('realLifeInterests')}
+            placeholder="e.g. basketball, cooking, travel, photography" />
         </Field>
 
         <Field label="Strengths (auto-detected)" hint="Comma-separated — edit if needed">

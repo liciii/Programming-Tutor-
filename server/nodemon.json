@@ -1,0 +1,6 @@
+{
+  "exec": "node --experimental-specifier-resolution=node index.js",
+  "watch": ["."],
+  "ignore": ["data/"],
+  "ext": "js,mjs,cjs,json"
+}

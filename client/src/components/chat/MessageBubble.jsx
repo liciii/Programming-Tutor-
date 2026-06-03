@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Code2, User, Copy, Check } from 'lucide-react';
+import { Code2, User, Copy, Check, StopCircle } from 'lucide-react';
 
 function CopyButton({ code }) {
   const [copied, setCopied] = useState(false);
@@ -16,7 +16,7 @@ function CopyButton({ code }) {
     <button onClick={copy} style={{
       position: 'absolute', top: 8, right: 8,
       background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: 5, padding: '3px 8px', color: '#ccc', cursor: 'pointer',
+      borderRadius: 0, padding: '3px 8px', color: '#ccc', cursor: 'pointer',
       fontSize: 11, display: 'flex', alignItems: 'center', gap: 4,
     }}>
       {copied ? <><Check size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
@@ -25,15 +25,15 @@ function CopyButton({ code }) {
 }
 
 const markdownComponents = {
-  code({ node, inline, className, children, ...props }) {
+  code({ node, className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || '');
     const code = String(children).replace(/\n$/, '');
-    if (!inline && match) {
+    if (match) {
       return (
         <div style={{ position: 'relative', marginTop: 6, marginBottom: 6 }}>
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '6px 14px', background: '#1a1f2e', borderRadius: '8px 8px 0 0',
+            padding: '6px 14px', background: '#1a1f2e', borderRadius: 0,
             borderBottom: '1px solid rgba(255,255,255,0.06)',
           }}>
             <span style={{ fontSize: 11, color: '#888', fontFamily: 'var(--font-mono)' }}>{match[1]}</span>
@@ -45,7 +45,7 @@ const markdownComponents = {
               language={match[1]}
               PreTag="div"
               customStyle={{
-                margin: 0, borderRadius: '0 0 8px 8px',
+                margin: 0, borderRadius: 0,
                 fontSize: 13, lineHeight: 1.55,
                 background: '#1a1f2e', padding: '14px',
               }}
@@ -61,7 +61,7 @@ const markdownComponents = {
       <code style={{
         fontFamily: 'var(--font-mono)', fontSize: '0.88em',
         background: 'rgba(79,142,247,0.1)', color: 'var(--accent)',
-        padding: '1px 5px', borderRadius: 4,
+        padding: '1px 5px', borderRadius: 0,
       }} {...props}>
         {children}
       </code>
@@ -120,7 +120,7 @@ export default function MessageBubble({ message }) {
       <div style={{
         maxWidth: '82%',
         padding: isUser ? '10px 14px' : '14px 18px',
-        borderRadius: isUser ? '14px 4px 14px 14px' : '4px 14px 14px 14px',
+        borderRadius: 0,
         background: isUser ? 'var(--accent)' : (isError ? 'var(--red-muted)' : 'var(--bg-surface)'),
         border: isUser ? 'none' : `1px solid ${isError ? 'rgba(248,113,113,0.2)' : 'var(--border)'}`,
         color: isUser ? '#fff' : (isError ? 'var(--red)' : 'var(--text-primary)'),
@@ -138,6 +138,11 @@ export default function MessageBubble({ message }) {
               </ReactMarkdown>
               {message.streaming && message.content && (
                 <span style={{ display: 'inline-block', width: 2, height: 14, background: 'var(--accent)', marginLeft: 1, animation: 'pulse 0.8s ease-in-out infinite', verticalAlign: 'text-bottom' }} />
+              )}
+              {message.stopped && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-muted)' }}>
+                  <StopCircle size={11} /> Generation stopped
+                </div>
               )}
             </>
           )

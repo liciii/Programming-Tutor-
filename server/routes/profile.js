@@ -1,5 +1,6 @@
 import express from 'express';
-import { getProfile, updateProfile, appendChatHistory } from '../services/profileService.js';
+import { v4 as uuidv4 } from 'uuid';
+import { getProfile, updateProfile, appendChatHistory, appendDiagnosticEvidence } from '../services/profileService.js';
 import { chatCompletion } from '../services/llmService.js';
 
 const router = express.Router();
@@ -8,9 +9,21 @@ const router = express.Router();
 // Anything not in this set is silently ignored, preventing privilege escalation.
 const MUTABLE_FIELDS = new Set([
   'programmingLevel', 'targetLanguage', 'learningStyle',
-  'topics', 'interests', 'strengths', 'weaknesses',
+  'topics', 'realLifeInterests', 'strengths', 'weaknesses',
   'preferredLLM', 'customApiKeys', 'externalSources',
 ]);
+
+const MAX_ARRAY_ITEMS = 50;
+const MAX_ITEM_LENGTH = 200;
+const MAX_URL_LENGTH = 500;
+
+function sanitizeStringArray(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .slice(0, MAX_ARRAY_ITEMS)
+    .map(s => String(s).slice(0, MAX_ITEM_LENGTH))
+    .filter(Boolean);
+}
 
 function sanitizeProfileUpdate(body, existing) {
   const result = {};
@@ -18,62 +31,89 @@ function sanitizeProfileUpdate(body, existing) {
     if (key in body) result[key] = body[key];
   }
 
-  // Validate customApiKeys — accept exactly the three supported providers
+  // Validate customApiKeys — only update a provider's key if the user explicitly
+  // typed a new non-empty value; an empty string means "keep whatever is stored".
   if (result.customApiKeys !== undefined) {
     const incoming = result.customApiKeys;
     const prev = existing?.customApiKeys || {};
     result.customApiKeys = {
-      openai:    typeof incoming.openai    === 'string' ? incoming.openai.trim()    : (prev.openai    || ''),
-      gemini:    typeof incoming.gemini    === 'string' ? incoming.gemini.trim()    : (prev.gemini    || ''),
-      anthropic: typeof incoming.anthropic === 'string' ? incoming.anthropic.trim() : (prev.anthropic || ''),
+      openai:    (typeof incoming.openai    === 'string' && incoming.openai.trim())    ? incoming.openai.trim()    : (prev.openai    || ''),
+      gemini:    (typeof incoming.gemini    === 'string' && incoming.gemini.trim())    ? incoming.gemini.trim()    : (prev.gemini    || ''),
+      anthropic: (typeof incoming.anthropic === 'string' && incoming.anthropic.trim()) ? incoming.anthropic.trim() : (prev.anthropic || ''),
     };
   }
 
-  // Validate externalSources structure
+  // Validate externalSources — require valid http/https URL, enforce length limits
   if (result.externalSources !== undefined) {
     if (!Array.isArray(result.externalSources)) {
       delete result.externalSources;
     } else {
       result.externalSources = result.externalSources
         .filter(s => s && typeof s.url === 'string')
+        .filter(s => {
+          try {
+            const u = new URL(s.url);
+            return u.protocol === 'https:' || u.protocol === 'http:';
+          } catch { return false; }
+        })
+        .slice(0, MAX_ARRAY_ITEMS)
         .map(s => ({
-          id: s.id || Date.now().toString(),
-          url: s.url,
+          id:      s.id || uuidv4(),
+          url:     s.url.slice(0, MAX_URL_LENGTH),
           addedAt: s.addedAt || new Date().toISOString(),
         }));
     }
+  }
+
+  // Enforce size limits on all string array fields
+  for (const field of ['topics', 'realLifeInterests', 'strengths', 'weaknesses']) {
+    if (field in result) result[field] = sanitizeStringArray(result[field]);
   }
 
   return result;
 }
 
 router.get('/', async (req, res) => {
-  const profile = await getProfile(req.user.id);
-  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  try {
+    const profile = await getProfile(req.user.id);
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-  // Strip actual key values — return only which providers have a key configured
-  const { customApiKeys, ...safeProfile } = profile;
-  safeProfile.customApiKeysSet = Object.keys(customApiKeys || {}).filter(k => customApiKeys[k]);
-  res.json(safeProfile);
+    // Strip actual key values — return only which providers have a key configured
+    const { customApiKeys, ...safeProfile } = profile;
+    safeProfile.customApiKeysSet = Object.keys(customApiKeys || {}).filter(k => customApiKeys[k]);
+    res.json(safeProfile);
+  } catch (err) {
+    console.error('GET /profile error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 router.put('/', async (req, res) => {
-  const existing = await getProfile(req.user.id);
-  const safeUpdates = sanitizeProfileUpdate(req.body, existing);
-  const updated = await updateProfile(req.user.id, safeUpdates);
-  // Strip key values from response as well
-  const { customApiKeys, ...safe } = updated;
-  safe.customApiKeysSet = Object.keys(customApiKeys || {}).filter(k => customApiKeys[k]);
-  res.json(safe);
+  try {
+    const existing = await getProfile(req.user.id);
+    const safeUpdates = sanitizeProfileUpdate(req.body, existing);
+    const updated = await updateProfile(req.user.id, safeUpdates);
+    const { customApiKeys, ...safe } = updated;
+    safe.customApiKeysSet = Object.keys(customApiKeys || {}).filter(k => customApiKeys[k]);
+    res.json(safe);
+  } catch (err) {
+    console.error('PUT /profile error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 router.post('/chat-history', async (req, res) => {
-  const { messages } = req.body;
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'Messages are required' });
+  try {
+    const { messages } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Messages are required' });
+    }
+    const updated = await appendChatHistory(req.user.id, messages);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /profile/chat-history error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
-  const updated = await appendChatHistory(req.user.id, messages);
-  res.json(updated);
 });
 
 // ---------------------------------------------------------------------------
@@ -82,8 +122,9 @@ router.post('/chat-history', async (req, res) => {
 // Three-phase approach to avoid relying on inaccurate self-evaluation:
 //
 // PHASE 1 — INTAKE (messages 1–2)
-//   Collect language, topics, learning style, interests conversationally.
-//   Ask for a rough self-assessed level but treat it only as a prior.
+//   Collect language, topics, learning style, real-life interests, and
+//   coding goals conversationally.  Ask for a rough self-assessed level but
+//   treat it only as a prior.
 //
 // PHASE 2 — DIAGNOSTIC (messages 3–5)
 //   Embed 2 targeted coding questions matched to their stated language.
@@ -93,23 +134,53 @@ router.post('/chat-history', async (req, res) => {
 // PHASE 3 — CALIBRATION & COMMIT
 //   Reconcile self-reported level with diagnostic evidence.
 //   If they diverge, the evidence wins.  The student never sees this logic.
+//
+// Phase is persisted in the profile (onboardingPhase field) so it can only
+// advance forward — never jump back or skip ahead due to message count tricks.
 // ---------------------------------------------------------------------------
+
+const ONBOARDING_VALID_ROLES = new Set(['user', 'assistant']);
+const ONBOARDING_MAX_MSG_LENGTH = 10_000;
 
 router.post('/onboarding/chat', async (req, res) => {
   try {
     const { messages } = req.body;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages array is required' });
+    }
+    for (const m of messages) {
+      if (!m || typeof m.content !== 'string' || !ONBOARDING_VALID_ROLES.has(m.role)) {
+        return res.status(400).json({ error: 'Each message must have a valid role and string content' });
+      }
+      if (m.content.length > ONBOARDING_MAX_MSG_LENGTH) {
+        return res.status(400).json({ error: `Message content exceeds ${ONBOARDING_MAX_MSG_LENGTH} characters` });
+      }
+    }
+
     const profile = await getProfile(req.user.id);
 
     const userTurns = messages.filter(m => m.role === 'user').length;
-    const phase = userTurns <= 2 ? 1 : userTurns <= 5 ? 2 : 3;
+    const derivedPhase = userTurns <= 2 ? 1 : userTurns <= 5 ? 2 : 3;
+    // Reset stored phase for a fresh session (≤1 user turn) so a previously
+    // completed or partially-completed profile never skips the user forward.
+    // For later turns the stored phase acts as a floor so the user can't
+    // replay old message counts to force an earlier phase.
+    const storedPhase = userTurns <= 1 ? 1 : (profile?.onboardingPhase ?? 1);
+    const phase = Math.max(derivedPhase, storedPhase);
+
+    // Advance the stored phase if we've moved forward.
+    if (phase > storedPhase) {
+      await updateProfile(req.user.id, { onboardingPhase: phase });
+    }
 
     const collectedSoFar = {
-      selfReportedLevel:  profile?.selfReportedLevel  || null,
-      targetLanguage:     profile?.targetLanguage     || null,
-      topics:             profile?.topics             || null,
-      learningStyle:      profile?.learningStyle      || null,
-      interests:          profile?.interests          || null,
-      diagnosticEvidence: profile?.diagnosticEvidence || [],
+      selfReportedLevel:   profile?.selfReportedLevel   || null,
+      targetLanguage:      profile?.targetLanguage      || null,
+      topics:              profile?.topics              || null,
+      learningStyle:       profile?.learningStyle       || null,
+      realLifeInterests:   profile?.realLifeInterests   || null,
+      diagnosticEvidence:  profile?.diagnosticEvidence  || [],
     };
 
     const systemPrompt = buildOnboardingPrompt(phase, collectedSoFar);
@@ -123,10 +194,8 @@ router.post('/onboarding/chat', async (req, res) => {
 
     if (phase === 2) {
       const evidence = await extractDiagnosticEvidence(messages, reply);
-      if (evidence) {
-        const existing = profile?.diagnosticEvidence || [];
-        await updateProfile(req.user.id, { diagnosticEvidence: [...existing, evidence] });
-      }
+      // appendDiagnosticEvidence is atomic — reads current array inside the updater
+      if (evidence) await appendDiagnosticEvidence(req.user.id, evidence);
       return res.json({ reply, onboardingComplete: false, phase: 2 });
     }
 
@@ -136,18 +205,24 @@ router.post('/onboarding/chat', async (req, res) => {
       const markerIdx = reply.indexOf(END_MARKER);
       const jsonStr = reply.substring(markerIdx + END_MARKER.length).trim();
 
-      // Extract the JSON object even if the LLM appended trailing text
       const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        // Malformed marker — keep the conversation going
-        return res.json({ reply: reply.substring(0, markerIdx).trim() || "Almost there! Let me gather just a bit more.", onboardingComplete: false, phase: 3 });
+        return res.json({
+          reply: reply.substring(0, markerIdx).trim() || "Almost there! Let me gather just a bit more.",
+          onboardingComplete: false,
+          phase: 3,
+        });
       }
 
       let extracted;
       try {
         extracted = JSON.parse(jsonMatch[0]);
       } catch {
-        return res.json({ reply: reply.substring(0, markerIdx).trim() || "Almost there! Let me gather just a bit more.", onboardingComplete: false, phase: 3 });
+        return res.json({
+          reply: reply.substring(0, markerIdx).trim() || "Almost there! Let me gather just a bit more.",
+          onboardingComplete: false,
+          phase: 3,
+        });
       }
 
       const finalProfile = {
@@ -155,6 +230,7 @@ router.post('/onboarding/chat', async (req, res) => {
         selfReportedLevel: collectedSoFar.selfReportedLevel,
         diagnosticEvidence: profile?.diagnosticEvidence || [],
         onboardingComplete: true,
+        onboardingPhase: 3,
         calibrationNote: extracted.programmingLevel !== collectedSoFar.selfReportedLevel
           ? `Self-reported ${collectedSoFar.selfReportedLevel}, calibrated to ${extracted.programmingLevel} based on diagnostic responses.`
           : `Self-reported level confirmed by diagnostic.`,
@@ -192,58 +268,80 @@ ${JSON.stringify(collected, null, 2)}
   if (phase === 1) {
     return base + `
 PHASE: INTAKE
-You need to naturally collect the following through conversation:
+You need to naturally collect ALL of the following through conversation — do not skip any item even if the user volunteers partial information upfront:
 1. What programming language they want to learn or improve in.
-2. What specific topics or goals they have (e.g. "build websites", "learn algorithms").
+2. What SPECIFIC topics or goals they have — even if they say "improve my Java skills", dig deeper:
+   ask what areas specifically (data structures, OOP, algorithms, frameworks, a project they want to build, etc.).
 3. How they prefer to learn (visual examples, hands-on practice, reading explanations, or a mix).
-4. Their personal interests outside coding (used later to make examples feel relevant).
-5. Their self-assessed programming level — ask something like "How would you describe your experience so far?"
+4. Their self-assessed programming level — ask something like "How would you describe your experience so far?"
    Accept whatever they say, but note it only as a starting point you will verify later.
+5. Their REAL-LIFE INTERESTS — hobbies, things they enjoy outside of coding, e.g. sports, music, gaming,
+   cooking, travel, movies, fitness, fashion, etc. This is IMPORTANT: the tutor will use these to make
+   coding examples feel personally relevant. Ask something like:
+   "What do you enjoy doing outside of coding? Any hobbies or interests — doesn't matter how unrelated they seem!"
+   Be genuinely curious and encourage them to share multiple interests.
+   Collect this in the 'realLifeInterests' field.
 
-Keep the conversation natural. Do NOT mention that you will test them later.
-Do NOT commit a level yet — just gather the self-report.`;
+STRICT RULES:
+- Ask only 1–2 questions per turn — never fire all questions at once.
+- You MUST have at least 2 back-and-forth exchanges in this phase before moving on.
+- If the user volunteers some information in their first message, acknowledge it warmly and ask about the remaining items one at a time.
+- Do NOT mention that you will test them later.
+- Do NOT commit a level yet — just gather the self-report.`;
   }
 
   if (phase === 2) {
     return base + `
 PHASE: DIAGNOSTIC
 You have collected their self-assessed level (${collected.selfReportedLevel || 'unknown'}) and their target language (${collected.targetLanguage || 'unknown'}).
-Now embed 1–2 short diagnostic questions naturally into the conversation.
+Topics or concepts they say they already know: ${JSON.stringify(collected.topics)}.
 
-Rules for diagnostic questions:
-- Frame them as getting to know their experience better, NOT as a test. e.g. "Just so I can pitch things at the right level — how would you explain what a function is in your own words?"
-- Match difficulty to their stated level but probe one level above to check if they were underselling themselves, or one level below to check for overconfidence.
-- For a self-reported BEGINNER: ask them to explain a basic concept (variables, loops, or conditionals) in their own words. A correct, confident explanation suggests they may be higher than beginner.
-- For a self-reported INTERMEDIATE: ask them to explain a moderately complex concept (e.g. what recursion is, or what a list comprehension does). Also show a 3–5 line code snippet with a subtle bug and ask what it does or if they spot any issues.
-- For a self-reported ADVANCED: show a code snippet involving a non-obvious pattern (e.g. a closure, a generator, a decorator) and ask them to explain what it does and why it works that way.
+YOUR ONLY JOB THIS PHASE: verify their actual ability with a hands-on task. Do NOT move to phase 3 until you have done this.
 
-After they answer, respond conversationally — acknowledge their response, gently correct any misconceptions without being condescending, then transition naturally to asking about their learning preferences or interests if not yet collected.
+CRITICAL RULES — read every word:
+1. What the student has already SAID about their knowledge is NOT evidence. Verbal claims ("I'm comfortable with X", "I know loops") tell you nothing about actual ability — anyone can say that. You must see them DO something.
+2. You MUST pose at least one concrete task before this phase can end. If you have not yet given them a task to attempt, give one NOW before replying to anything else.
+3. The task must TARGET what they claimed to know. If they said they know loops and conditionals in Java, give them a Java problem involving loops and conditionals — not something unrelated.
+4. Do NOT frame the task as optional. Say something like "Let's try a quick one to make sure I pitch things at the right level for you:" and then give the task.
+5. Wait for their attempt before drawing any conclusions. Do not assess them based on how they described their own knowledge.
+
+What kind of task to give (choose based on their stated level):
+- BEGINNER (self-reported): Ask them to write a short piece of code from scratch. e.g. "Write a loop in ${collected.targetLanguage || 'their language'} that prints the numbers 1 to 5, but skips 3."
+- INTERMEDIATE (self-reported): Show a 4–8 line code snippet in their language that contains a subtle bug or non-obvious behaviour. Ask them to trace what it outputs, or to find and fix the bug.
+- ADVANCED (self-reported): Show a code snippet using a non-obvious pattern (closure, generator, decorator, pointer arithmetic, etc.) and ask them to explain what it does and why it works that way. Or give a design problem.
+
+After they respond to the task:
+- Acknowledge what they got right and gently address any gaps — do not be condescending.
+- If any intake information (learning style, real-life interests) is still missing, collect it naturally now.
+- Mark this phase as done in your mind; phase 3 will handle final calibration.
 
 Internally note (but do NOT state aloud):
-- Vocabulary used (do they use correct technical terms?)
-- Accuracy (is the explanation correct?)
-- Confidence (hedging vs direct?)
-- Any misconceptions revealed
-These observations will be used to calibrate their level.`;
+- Did they attempt the task or dodge it?
+- Vocabulary used (correct technical terms vs hand-wavy?)
+- Accuracy of their solution or explanation
+- Any misconceptions, off-by-one errors, logic gaps
+- Confidence level (hedging vs direct)`;
   }
+
+  const hasEvidence = collected.diagnosticEvidence?.length > 0;
 
   return base + `
 PHASE: CALIBRATION AND COMMIT
-You now have enough information to finalise the learner profile.
 
 Self-reported level: ${collected.selfReportedLevel || 'not provided'}
-Diagnostic evidence gathered: ${JSON.stringify(collected.diagnosticEvidence)}
+Diagnostic evidence gathered: ${hasEvidence ? JSON.stringify(collected.diagnosticEvidence) : 'NONE — no hands-on task has been completed yet'}
 
-Your task:
-1. Reconcile the self-reported level with the diagnostic evidence.
+${!hasEvidence ? `IMPORTANT: The diagnostic evidence array is empty. This means the student has NOT yet attempted any hands-on task. You MUST NOT emit the END_ONBOARDING marker yet. Instead, give them a concrete task NOW (same rules as Phase 2: write code, trace output, fix a bug) and wait for their response before finalising.` : `Your task:
+1. Reconcile the self-reported level with the diagnostic evidence from their task attempt.
    - If evidence SUPPORTS the self-reported level: confirm it.
-   - If evidence suggests OVERCONFIDENCE (they said intermediate but couldn't explain basic concepts accurately): set level to beginner or lower-intermediate.
-   - If evidence suggests UNDERSELLING (they said beginner but demonstrated strong vocabulary, accurate explanations, spotted the bug): set level to intermediate or advanced.
+   - If evidence suggests OVERCONFIDENCE (they said intermediate but made basic errors): set level to beginner.
+   - If evidence suggests UNDERSELLING (they said beginner but demonstrated strong accuracy and vocabulary): set level to intermediate or advanced.
 2. Produce one final warm closing message that summarises what you've learned about them and what to expect from their tutor. Do NOT mention that you tested them or calibrated their level — just say you have a good picture of where they are.
 3. End your message with EXACTLY this marker and JSON (nothing after it):
-END_ONBOARDING:{"programmingLevel":"<calibrated level: beginner|intermediate|advanced>","targetLanguage":"...","topics":[...],"learningStyle":"...","interests":[...],"strengths":[<any demonstrated strengths from diagnostic>],"weaknesses":[<any misconceptions or gaps revealed>]}
+END_ONBOARDING:{"programmingLevel":"<calibrated level: beginner|intermediate|advanced>","targetLanguage":"...","topics":[...],"learningStyle":"...","realLifeInterests":[<array of their real-life hobbies and interests, e.g. "football", "cooking", "hip-hop music">],"strengths":[<any demonstrated strengths from diagnostic>],"weaknesses":[<any misconceptions or gaps revealed>]}
 
-The programmingLevel field must reflect your calibrated assessment, NOT simply echo back the self-reported level.`;
+The programmingLevel field must reflect your calibrated assessment, NOT simply echo back the self-reported level.
+The realLifeInterests array must contain ONLY real-life, non-coding interests mentioned by the student.`}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,13 +351,17 @@ The programmingLevel field must reflect your calibrated assessment, NOT simply e
 async function extractPartialProfile(messages, lastReply) {
   const systemPrompt = `Extract any of the following fields from this onboarding conversation if clearly stated.
 Return ONLY a JSON object with the fields found. If a field is not clearly present, omit it entirely.
-Fields: selfReportedLevel (string), targetLanguage (string), topics (array), learningStyle (string), interests (array).
+Fields:
+- selfReportedLevel (string): their stated programming skill level
+- targetLanguage (string): programming language they want to learn
+- topics (array of strings): specific programming topics or goals
+- learningStyle (string): how they prefer to learn
+- realLifeInterests (array of strings): ONLY real-life, non-coding interests (hobbies, sports, music, games, food, travel, etc.)
 Do not infer or guess. Only extract what was explicitly stated by the user.`;
 
   try {
-    // Include the last assistant reply so the extractor sees any confirmed summaries
     const context = [
-      ...messages.slice(-4).map(m => `${m.role}: ${m.content}`),
+      ...messages.slice(-6).map(m => `${m.role}: ${m.content}`),
       `assistant: ${lastReply}`,
     ].join('\n');
 
@@ -276,25 +378,52 @@ Do not infer or guess. Only extract what was explicitly stated by the user.`;
 }
 
 async function extractDiagnosticEvidence(messages, lastReply) {
+  const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+  if (!lastUserMsg) return null;
+
+  // Find the last assistant message before this user reply — that is the
+  // message the student was responding to. If it didn't contain a concrete
+  // task (code to analyse, something to write, a question to answer), the
+  // student's reply is just conversation, not diagnostic evidence.
+  const assistantMessages = messages.filter(m => m.role === 'assistant');
+  const precedingAssistantMsg = assistantMessages[assistantMessages.length - 1];
+
+  const gatekeepPrompt = `You are reviewing an onboarding conversation for a programming tutor.
+The assistant's last message before the student replied is shown below.
+Did the assistant give the student a concrete hands-on diagnostic task to attempt?
+A concrete task means: asking them to write code, trace the output of a code snippet, find a bug, or explain a specific concept in detail.
+It does NOT count if the assistant only asked a general question like "what's your level?" or simply acknowledged what the student said.
+Reply with ONLY the word YES or NO.
+
+Assistant message: """${precedingAssistantMsg?.content || ''}"""`;
+
+  try {
+    const gateResult = await chatCompletion({
+      messages: [{ role: 'user', content: 'Assess the message above.' }],
+      systemPrompt: gatekeepPrompt,
+    });
+    if (!gateResult.trim().toUpperCase().startsWith('YES')) return null;
+  } catch {
+    return null;
+  }
+
   const systemPrompt = `You are analysing a programming tutor onboarding conversation.
-The last user message is a response to a diagnostic question about their programming knowledge.
-Extract observable evidence about their actual competency level.
+The student just responded to a concrete diagnostic task (writing code, tracing output, or explaining a concept in detail).
+Extract observable evidence about their actual demonstrated competency — ignore anything they merely claimed before the task.
 Return a JSON object with:
 {
-  "observation": "<one sentence: what the student said or demonstrated>",
+  "observation": "<one sentence: what the student actually did or wrote>",
   "vocabularyAccurate": true/false,
   "conceptuallyCorrect": true/false,
-  "misconceptionFound": "<describe any misconception, or null>",
+  "misconceptionFound": "<describe any misconception or error, or null>",
   "suggestedLevel": "beginner" | "intermediate" | "advanced",
   "confidence": "low" | "medium" | "high"
 }
-Base suggestedLevel only on what was demonstrated in this response, not on what they claimed.`;
+Base suggestedLevel only on what was demonstrated in this response, not on what they previously claimed.`;
 
   try {
-    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    if (!lastUserMsg) return null;
     const result = await chatCompletion({
-      messages: [{ role: 'user', content: `Student response to diagnostic question: "${lastUserMsg.content}"\n\nTutor reply: "${lastReply}"` }],
+      messages: [{ role: 'user', content: `Student response to diagnostic task: "${lastUserMsg.content}"\n\nTutor reply: "${lastReply}"` }],
       systemPrompt,
       jsonMode: true,
     });

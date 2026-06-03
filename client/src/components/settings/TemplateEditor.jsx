@@ -61,7 +61,7 @@ export default function TemplateEditor() {
     }
   };
 
-  const PLACEHOLDERS = ['{{programmingLevel}}', '{{targetLanguage}}', '{{learningStyle}}', '{{interests}}', '{{weaknesses}}', '{{strengths}}', '{{topics}}'];
+  const PLACEHOLDERS = ['{{programmingLevel}}', '{{targetLanguage}}', '{{learningStyle}}', '{{realLifeInterests}}', '{{weaknesses}}', '{{strengths}}', '{{topics}}'];
 
   return (
     <div style={{ maxWidth: 700 }}>
@@ -82,7 +82,7 @@ export default function TemplateEditor() {
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Available placeholders (auto-filled from learner profile):</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {PLACEHOLDERS.map(p => (
-            <code key={p} style={{ fontSize: 11, background: 'var(--accent-muted)', color: 'var(--accent)', padding: '2px 6px', borderRadius: 4 }}>{p}</code>
+            <code key={p} style={{ fontSize: 11, background: 'var(--accent-muted)', color: 'var(--accent)', padding: '2px 6px', borderRadius: 0 }}>{p}</code>
           ))}
         </div>
       </div>

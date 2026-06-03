@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock the I/O layer — services must not touch the real filesystem in unit tests
-vi.mock('../../../utils/fileLock.js', () => ({
-  readJSON: vi.fn(),
-  writeJSON: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../../../utils/fileLock.js', () => {
+  const readJSON = vi.fn();
+  const writeJSON = vi.fn().mockResolvedValue(undefined);
+  const updateJSON = vi.fn(async (path, updater) => {
+    const current = await readJSON(path);
+    const result = await updater(current);
+    if (result != null) await writeJSON(path, result);
+    return result;
+  });
+  return { readJSON, writeJSON, updateJSON };
+});
 
 import { readJSON, writeJSON } from '../../../utils/fileLock.js';
 import {
@@ -13,6 +19,7 @@ import {
   updateProfile,
   appendSessionHistory,
   appendChatHistory,
+  appendDiagnosticEvidence,
   createEmptyProfile,
 } from '../../../services/profileService.js';
 
@@ -22,11 +29,12 @@ const BASE_PROFILE = {
   targetLanguage: 'Python',
   learningStyle: 'hands-on',
   topics: ['functions', 'loops'],
-  interests: ['games'],
+  sessionTopics: [],
   strengths: [],
   weaknesses: [],
   sessionHistory: [],
   chatHistory: [],
+  diagnosticEvidence: [],
   onboardingComplete: true,
 };
 
@@ -121,12 +129,38 @@ describe('appendChatHistory', () => {
   });
 });
 
+describe('appendDiagnosticEvidence', () => {
+  it('appends evidence to an existing array', async () => {
+    const evidence = { observation: 'Explained loops correctly', suggestedLevel: 'intermediate' };
+    await appendDiagnosticEvidence('user-1', evidence);
+    const [, written] = writeJSON.mock.calls[0];
+    expect(written.diagnosticEvidence).toHaveLength(1);
+    expect(written.diagnosticEvidence[0].suggestedLevel).toBe('intermediate');
+  });
+
+  it('appends to existing evidence without overwriting', async () => {
+    const existing = [{ observation: 'First', suggestedLevel: 'beginner' }];
+    readJSON.mockResolvedValue({ ...BASE_PROFILE, diagnosticEvidence: existing });
+    await appendDiagnosticEvidence('user-1', { observation: 'Second', suggestedLevel: 'intermediate' });
+    const [, written] = writeJSON.mock.calls[0];
+    expect(written.diagnosticEvidence).toHaveLength(2);
+    expect(written.diagnosticEvidence[1].observation).toBe('Second');
+  });
+
+  it('returns null when profile does not exist', async () => {
+    readJSON.mockResolvedValue(null);
+    expect(await appendDiagnosticEvidence('ghost', {})).toBeNull();
+    expect(writeJSON).not.toHaveBeenCalled();
+  });
+});
+
 describe('createEmptyProfile', () => {
   it('writes correct default shape', async () => {
     await createEmptyProfile('new-user');
     const [, written] = writeJSON.mock.calls[0];
     expect(written.onboardingComplete).toBe(false);
     expect(written.topics).toEqual([]);
+    expect(written.sessionTopics).toEqual([]);
     expect(written.preferredLLM).toBe('openai');
     expect(written.customApiKeys).toEqual({});
     expect(written.sessionHistory).toEqual([]);

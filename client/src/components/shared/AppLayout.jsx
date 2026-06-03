@@ -35,7 +35,7 @@ export default function AppLayout({ children }) {
         {/* Logo */}
         <div style={{ padding: '16px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 57 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-            <div style={{ width: 28, height: 28, background: 'var(--accent)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <div style={{ width: 28, height: 28, background: 'var(--accent)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Code2 size={15} color="#fff" />
             </div>
             {!collapsed && <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>CodeTutor AI</span>}
@@ -81,11 +81,9 @@ export default function AppLayout({ children }) {
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
               </div>
             )}
-            {!collapsed && (
-              <button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ padding: 4, flexShrink: 0 }} title="Logout">
-                <LogOut size={14} />
-              </button>
-            )}
+            <button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ padding: 4, flexShrink: 0 }} title="Logout">
+              <LogOut size={14} />
+            </button>
           </div>
         </div>
       </aside>

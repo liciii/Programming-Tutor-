@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../utils/fileLock.js', () => ({
-  readJSON: vi.fn(),
-  writeJSON: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../../../utils/fileLock.js', () => {
+  const readJSON = vi.fn();
+  const writeJSON = vi.fn().mockResolvedValue(undefined);
+  const updateJSON = vi.fn(async (path, updater) => {
+    const current = await readJSON(path);
+    const result = await updater(current);
+    if (result != null) await writeJSON(path, result);
+    return result;
+  });
+  return { readJSON, writeJSON, updateJSON };
+});
 
 import { readJSON, writeJSON } from '../../../utils/fileLock.js';
 import {
@@ -143,7 +150,7 @@ describe('buildSystemPrompt', () => {
       programmingLevel: 'intermediate',
       targetLanguage: 'JavaScript',
       learningStyle: 'hands-on',
-      interests: ['games', 'music'],
+      realLifeInterests: ['games', 'music'],
       weaknesses: ['async'],
       strengths: ['loops'],
       topics: ['arrays'],

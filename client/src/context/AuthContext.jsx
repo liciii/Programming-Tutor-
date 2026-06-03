@@ -3,23 +3,12 @@ import { api } from '../services/api';
 
 const AuthContext = createContext(null);
 
-const DEV_MODE = true;
-const DEV_USER = { id: 'dev-user', name: 'Test User', email: 'test@example.com' };
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (DEV_MODE) {
-      // Skip auth in dev mode and go straight to app
-      setUser(DEV_USER);
-      setOnboardingComplete(true);
-      setLoading(false);
-      return;
-    }
-
     const token = localStorage.getItem('token');
     if (token) {
       api.get('/auth/me')

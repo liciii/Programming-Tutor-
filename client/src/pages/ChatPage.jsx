@@ -4,7 +4,7 @@ import { streamChat, api } from '../services/api';
 import MessageBubble from '../components/chat/MessageBubble';
 import TemplateSelector from '../components/chat/TemplateSelector';
 import ProfileBadge from '../components/chat/ProfileBadge';
-import { Send, RotateCcw, ChevronDown, Sparkles, UploadCloud, FileText } from 'lucide-react';
+import { Send, StopCircle, RotateCcw, ChevronDown, Sparkles, UploadCloud, FileText } from 'lucide-react';
 
 const STARTER_PROMPTS = [
   "Explain what a recursive function is",
@@ -23,17 +23,38 @@ export default function ChatPage() {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [pendingFile, setPendingFile] = useState(null); // staged but not yet uploaded
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const abortRef = useRef(null);
+  const messagesRef = useRef(messages);
+  // When a chat is loaded from history, track how many messages it had so we
+  // don't re-save it on unmount unless the user actually added new messages.
+  const loadedLengthRef = useRef(0);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+  // Keep the ref in sync so the unmount effect can read the latest messages.
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Auto-save when the user navigates away without clicking "New chat".
+  // Skip saving if the messages were loaded from history and no new ones were added —
+  // that would just create a duplicate entry.
+  useEffect(() => {
+    return () => {
+      const msgs = messagesRef.current;
+      if (msgs.length > 0 && msgs.length > loadedLengthRef.current) {
+        api.saveChatHistory(msgs.map(m => ({ role: m.role, content: m.content })));
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (location.state?.loadChat) {
       setMessages(location.state.loadChat);
+      loadedLengthRef.current = location.state.loadChat.length;
     }
   }, [location.state]);
 
@@ -49,7 +70,6 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    // Load uploaded file list for this user
     api.get('/profile').then(profile => {
       setUploadedFiles(profile.files || []);
     }).catch(() => {});
@@ -67,24 +87,55 @@ export default function ChatPage() {
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }, [input]);
 
+  const stopGeneration = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+  }, []);
+
   const sendMessage = useCallback(async (text) => {
     const content = (text || input).trim();
     if (!content || loading) return;
 
-    const userMsg = { role: 'user', content, id: Date.now() };
+    // Upload the staged file before sending so the server's file context is
+    // up-to-date when it processes this message.
+    if (pendingFile) {
+      setUploading(true);
+      try {
+        const data = await api.uploadFile(pendingFile);
+        setUploadedFiles(prev => [...prev, data.file]);
+      } catch (err) {
+        setMessages(prev => [...prev, {
+          role: 'assistant', content: `File upload failed: ${err.message}`,
+          id: crypto.randomUUID(), error: true,
+        }]);
+        setUploading(false);
+        return;
+      } finally {
+        setPendingFile(null);
+        setUploading(false);
+      }
+    }
+
+    const userMsg = { role: 'user', content, id: crypto.randomUUID() };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
     setLoading(true);
 
-    // Add placeholder assistant message
-    const assistantId = Date.now() + 1;
+    const assistantId = crypto.randomUUID();
     setMessages(prev => [...prev, { role: 'assistant', content: '', id: assistantId, streaming: true }]);
+
+    // Create a fresh AbortController for this request.
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const reader = await streamChat(
         newMessages.map(m => ({ role: m.role, content: m.content })),
-        selectedTemplate
+        selectedTemplate,
+        controller.signal,
       );
 
       const decoder = new TextDecoder();
@@ -115,16 +166,24 @@ export default function ChatPage() {
         }
       }
     } catch (err) {
-      setMessages(prev => prev.map(m =>
-        m.id === assistantId
-          ? { ...m, content: `Sorry, something went wrong: ${err.message}`, streaming: false, error: true }
-          : m
-      ));
+      if (err.name === 'AbortError') {
+        // User cancelled — mark the message as stopped, keep partial content.
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, streaming: false, stopped: true } : m
+        ));
+      } else {
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId
+            ? { ...m, content: `Sorry, something went wrong: ${err.message}`, streaming: false, error: true }
+            : m
+        ));
+      }
     } finally {
+      abortRef.current = null;
       setLoading(false);
       setTimeout(() => textareaRef.current?.focus(), 50);
     }
-  }, [input, messages, loading, selectedTemplate]);
+  }, [input, messages, loading, selectedTemplate, pendingFile]);
 
   const handleKey = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -134,27 +193,28 @@ export default function ChatPage() {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingFile(file);
+    e.target.value = '';
+    // Focus the textarea so the user can immediately type a prompt about the file
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  };
 
-    setUploading(true);
+  const handleDeleteFile = async (fileId) => {
     try {
-      const data = await api.uploadFile(file);
-      setMessages(prev => [...prev, { role: 'assistant', content: `Uploaded file: ${data.file.name}` }]);
+      await api.deleteFile(fileId);
+      setUploadedFiles(prev => prev.filter(f => f.id !== fileId));
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `File upload failed: ${err.message}` }]);
-    } finally {
-      setUploading(false);
-      e.target.value = '';
+      console.error('Delete file error:', err);
     }
   };
 
   const clearChat = async () => {
     if (loading) return;
     if (messages.length > 0) {
-      // Save this chat session before clearing
-      await api.saveChatHistory(messages);
+      await api.saveChatHistory(messages.map(m => ({ role: m.role, content: m.content })));
     }
     setMessages([]);
   };
@@ -167,7 +227,6 @@ export default function ChatPage() {
       <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-surface)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <TemplateSelector selected={selectedTemplate} onChange={setSelectedTemplate} />
-
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ProfileBadge />
@@ -183,16 +242,16 @@ export default function ChatPage() {
       <div ref={containerRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', position: 'relative' }}>
         {isEmpty ? (
           <div className="fade-in" style={{ maxWidth: 580, margin: '40px auto 0', textAlign: 'center' }}>
-            <div style={{ width: 56, height: 56, background: 'var(--accent-muted)', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+            <div style={{ width: 56, height: 56, background: 'var(--accent-muted)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
               <Sparkles size={26} color="var(--accent)" />
             </div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 8 }}>What would you like to learn?</h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 32 }}>
-              Ask me to explain a concept, give you an exercise, review your code, or quiz you on any programming topic.
+              Ask me to explain a concept, give you an exercise, review your code, or quiz you on any topic. Upload lecture notes or slides in the Library and I'll draw on them too.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, textAlign: 'left' }}>
               {STARTER_PROMPTS.map(p => (
-                <button key={p} onClick={() => sendMessage(p)}
+                <button key={p} onClick={() => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }}
                   style={{
                     padding: '12px 14px', background: 'var(--bg-surface)', border: '1px solid var(--border)',
                     borderRadius: 'var(--radius-md)', color: 'var(--text-secondary)', fontSize: 13,
@@ -222,31 +281,35 @@ export default function ChatPage() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {uploadedFiles.map((file) => (
-                    <a
+                    <div
                       key={file.id}
-                      href={file.path}
-                      target="_blank"
-                      rel="noreferrer"
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        textDecoration: 'none',
                         padding: '10px 12px',
                         borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--border)',
                         background: 'var(--bg-base)',
-                        color: 'var(--text-primary)',
                         fontSize: 13,
                       }}
                     >
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 380, color: 'var(--text-primary)' }}>
                         {file.name}
                       </span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                        {Math.round(file.size / 1024)} KB
-                      </span>
-                    </a>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                          {Math.round(file.size / 1024)} KB
+                        </span>
+                        <button
+                          onClick={() => handleDeleteFile(file.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+                          title="Remove file"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -277,6 +340,31 @@ export default function ChatPage() {
       {/* Input area */}
       <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
         <div style={{ maxWidth: 760, margin: '0 auto' }}>
+
+          {/* Staged file chip — shown before the message is sent */}
+          {pendingFile && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '7px 12px', marginBottom: 6,
+              background: 'var(--bg-elevated)', border: '1px solid var(--accent)',
+            }}>
+              <FileText size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+                {pendingFile.name}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                {Math.round(pendingFile.size / 1024)} KB
+              </span>
+              <button
+                onClick={() => setPendingFile(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 16, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+                title="Remove file"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           <div style={{
             display: 'flex', gap: 10, alignItems: 'flex-end',
             background: 'var(--bg-elevated)', border: '1px solid var(--border)',
@@ -291,7 +379,7 @@ export default function ChatPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Ask anything about programming…"
+              placeholder={pendingFile ? `Ask a question about ${pendingFile.name}…` : 'Ask anything about programming…'}
               rows={1}
               disabled={loading}
               style={{
@@ -304,20 +392,31 @@ export default function ChatPage() {
               onClick={handleUploadClick}
               disabled={uploading || loading}
               className="btn btn-ghost btn-sm"
-              style={{ flexShrink: 0, alignSelf: 'flex-end', padding: '6px 10px', borderRadius: 8 }}
-              title="Upload a file"
+              style={{ flexShrink: 0, alignSelf: 'flex-end', padding: '6px 10px', borderRadius: 0, color: pendingFile ? 'var(--accent)' : undefined }}
+              title={pendingFile ? 'Replace file' : 'Attach a file'}
             >
               {uploading ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <UploadCloud size={14} />}
             </button>
             <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileChange} />
-            <button
-              onClick={() => sendMessage()}
-              disabled={loading || !input.trim()}
-              className="btn btn-primary btn-sm"
-              style={{ flexShrink: 0, alignSelf: 'flex-end', padding: '6px 12px', borderRadius: 8 }}
-            >
-              {loading ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <Send size={14} />}
-            </button>
+            {loading ? (
+              <button
+                onClick={stopGeneration}
+                className="btn btn-ghost btn-sm"
+                style={{ flexShrink: 0, alignSelf: 'flex-end', padding: '6px 12px', borderRadius: 8, color: 'var(--text-secondary)' }}
+                title="Stop generating"
+              >
+                <StopCircle size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={() => sendMessage()}
+                disabled={!input.trim() && !pendingFile}
+                className="btn btn-primary btn-sm"
+                style={{ flexShrink: 0, alignSelf: 'flex-end', padding: '6px 12px', borderRadius: 0 }}
+              >
+                <Send size={14} />
+              </button>
+            )}
           </div>
           <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 6 }}>
             Shift+Enter for new line · Enter to send

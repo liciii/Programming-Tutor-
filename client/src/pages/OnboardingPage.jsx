@@ -5,8 +5,9 @@ import { api } from '../services/api';
 import { Code2, Send, CheckCircle2, MessageSquare, FlaskConical, Sparkles } from 'lucide-react';
 
 const WELCOME_MSG = {
+  id: 'welcome',
   role: 'assistant',
-  content: "Hi! 👋 I'm your CodeTutor onboarding assistant. I'll ask you a few questions to personalise your learning experience — it only takes a couple of minutes.\n\nLet's start: what programming language are you looking to learn or improve in, and what's drawing you to it?",
+  content: "Hi!  I'm your CodeTutor onboarding assistant. I'll ask you a few questions to personalise your learning experience — it only takes a couple of minutes.\n\nLet's start: what programming language are you looking to learn or improve in, and what's drawing you to it?",
 };
 
 // Phase metadata shown in the header progress bar
@@ -45,7 +46,7 @@ export default function OnboardingPage() {
   const send = async () => {
     if (!input.trim() || loading) return;
 
-    const userMsg = { role: 'user', content: input.trim() };
+    const userMsg = { id: crypto.randomUUID(), role: 'user', content: input.trim() };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
@@ -60,18 +61,15 @@ export default function OnboardingPage() {
       // Update phase indicator from server response
       if (data.phase) setPhase(data.phase);
 
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+      setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: data.reply }]);
 
       if (data.onboardingComplete) {
         setPhase(3);
         setDone(true);
-        setTimeout(() => {
-          completeOnboarding();
-          navigate('/');
-        }, 2200);
       }
     } catch (err) {
       setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: 'Sorry, something went wrong. Please try again.',
         error: true,
@@ -96,7 +94,7 @@ export default function OnboardingPage() {
         <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 28, height: 28, background: 'var(--accent)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 28, height: 28, background: 'var(--accent)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Code2 size={15} color="#fff" />
             </div>
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15 }}>CodeTutor AI</span>
@@ -111,7 +109,7 @@ export default function OnboardingPage() {
                 <React.Fragment key={p.id}>
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '4px 10px', borderRadius: 20,
+                    padding: '4px 10px', borderRadius: 0,
                     background: isDone ? 'var(--green-muted)' : isActive ? 'var(--accent-muted)' : 'transparent',
                     border: `1px solid ${isDone ? 'rgba(62,207,142,0.25)' : isActive ? 'rgba(79,142,247,0.3)' : 'var(--border)'}`,
                     transition: 'all 0.3s ease',
@@ -164,8 +162,8 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <MessageRow key={i} msg={msg} />
+          {messages.map((msg) => (
+            <MessageRow key={msg.id} msg={msg} />
           ))}
 
           {loading && (
@@ -184,14 +182,22 @@ export default function OnboardingPage() {
 
           {done && (
             <div className="fade-in" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              padding: '14px 18px', marginTop: 8,
-              color: 'var(--green)', background: 'var(--green-muted)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14,
+              padding: '20px 18px', marginTop: 8,
+              background: 'var(--green-muted)',
               borderRadius: 'var(--radius-md)', border: '1px solid rgba(62,207,142,0.2)',
-              fontWeight: 500, fontSize: 13,
             }}>
-              <CheckCircle2 size={16} />
-              Profile complete — launching your personalised tutor…
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--green)', fontWeight: 500, fontSize: 13 }}>
+                <CheckCircle2 size={16} />
+                Your personalised profile is ready!
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ padding: '10px 28px', fontSize: 14, justifyContent: 'center' }}
+                onClick={() => { completeOnboarding(); navigate('/'); }}
+              >
+                Start learning →
+              </button>
             </div>
           )}
 
@@ -232,7 +238,7 @@ export default function OnboardingPage() {
                 className="btn btn-primary"
                 onClick={send}
                 disabled={loading || !input.trim()}
-                style={{ padding: '7px 13px', borderRadius: 8, flexShrink: 0, alignSelf: 'flex-end' }}
+                style={{ padding: '7px 13px', borderRadius: 0, flexShrink: 0, alignSelf: 'flex-end' }}
               >
                 {loading
                   ? <span className="spinner" style={{ width: 14, height: 14 }} />
@@ -278,7 +284,7 @@ function MessageRow({ msg }) {
       <div style={{
         maxWidth: '78%',
         padding: '11px 15px',
-        borderRadius: isUser ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
+        borderRadius: 0,
         background: isUser ? 'var(--accent)' : (msg.error ? 'var(--red-muted)' : 'var(--bg-elevated)'),
         border: isUser ? 'none' : `1px solid ${msg.error ? 'rgba(248,113,113,0.2)' : 'var(--border)'}`,
         color: isUser ? '#fff' : (msg.error ? 'var(--red)' : 'var(--text-primary)'),

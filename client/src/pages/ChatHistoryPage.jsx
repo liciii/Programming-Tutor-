@@ -86,6 +86,7 @@ export default function ChatHistoryPage() {
                       background: 'transparent',
                       border: 'none',
                       cursor: 'pointer',
+                      color: 'var(--text-primary)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -93,10 +94,17 @@ export default function ChatHistoryPage() {
                   >
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <div style={{ fontWeight: 600 }}>{chat.messages[0]?.content?.slice(0, 60) || 'Chat session'}</div>
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                          {detectIntent(chat.messages[0]?.content)}
-                        </span>
+                        {(() => {
+                          const firstUser = chat.messages.find(m => m.role === 'user');
+                          return (
+                            <>
+                              <div style={{ fontWeight: 600 }}>{firstUser?.content?.slice(0, 60) || 'Chat session'}</div>
+                              <span style={{ padding: '2px 8px', borderRadius: 0, fontSize: 11, background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                                {detectIntent(firstUser?.content)}
+                              </span>
+                            </>
+                          );
+                        })()}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Clock size={12} />
@@ -120,7 +128,7 @@ export default function ChatHistoryPage() {
                   {isOpen && (
                     <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)' }}>
                       {chat.messages.map((m, idx) => (
-                        <div key={idx} style={{ marginBottom: 10 }}>
+                        <div key={`${chat.id}-${idx}`} style={{ marginBottom: 10 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: m.role === 'assistant' ? 'var(--accent)' : 'var(--text-secondary)' }}>
                             {m.role.toUpperCase()}
                           </div>

@@ -6,27 +6,7 @@ export default function ProgressPage() {
   const [profile, setProfile] = useState(null);
 
   useEffect(() => {
-    // In dev mode, generate mock data
-    if (true) { // DEV_MODE
-      setProfile({
-        name: 'Test User',
-        programmingLevel: 'intermediate',
-        targetLanguage: 'Python',
-        topics: ['Functions', 'Classes', 'Decorators', 'Async/Await', 'Testing'],
-        strengths: ['Problem solving', 'Debugging', 'Code organization'],
-        weaknesses: ['Performance optimization', 'Design patterns'],
-        sessionHistory: [
-          { summary: 'Learned about decorators', timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
-          { summary: 'Practiced class inheritance', timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-          { summary: 'Debugged async function', timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
-          { summary: 'Explained list comprehensions', timestamp: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
-          { summary: 'Quiz on functions', timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-          { summary: 'Reviewed file I/O code', timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
-        ],
-      });
-    } else {
-      api.get('/profile').then(setProfile).catch(() => {});
-    }
+    api.get('/profile').then(setProfile).catch(() => {});
   }, []);
 
   if (!profile) {
@@ -34,20 +14,33 @@ export default function ProgressPage() {
   }
 
   const calculateStreak = () => {
-    if (!profile.sessionHistory || profile.sessionHistory.length === 0) return 0;
-    let streak = 0;
+    if (!profile.sessionHistory?.length) return 0;
+    const DAY_MS = 86_400_000;
+
+    // Build a set of unique calendar days (midnight local time) that have sessions.
+    const sessionDays = new Set(
+      profile.sessionHistory.map(h => {
+        const d = new Date(h.timestamp);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
+      })
+    );
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    for (let i = 0; i < 14; i++) {
-      const checkDate = new Date(today);
-      checkDate.setDate(checkDate.getDate() - i);
-      const hasSession = profile.sessionHistory.some(h => {
-        const hDate = new Date(h.timestamp);
-        hDate.setHours(0, 0, 0, 0);
-        return hDate.getTime() === checkDate.getTime();
-      });
-      if (hasSession) streak++;
-      else break;
+    const todayMs = today.getTime();
+
+    // Start from today if there's a session, otherwise from yesterday.
+    // If neither has a session the streak is 0.
+    let start = todayMs;
+    if (!sessionDays.has(todayMs)) {
+      start = todayMs - DAY_MS;
+      if (!sessionDays.has(start)) return 0;
+    }
+
+    let streak = 0;
+    for (let day = start; sessionDays.has(day); day -= DAY_MS) {
+      streak++;
     }
     return streak;
   };
@@ -74,13 +67,13 @@ export default function ProgressPage() {
             icon={<BookOpen size={20} />}
             title="Current Level"
             value={profile.programmingLevel?.charAt(0).toUpperCase() + profile.programmingLevel?.slice(1) || 'Not set'}
-            subtitle="in Python"
+            subtitle={`in ${profile.targetLanguage || 'programming'}`}
           />
           <StatCard
             icon={<Target size={20} />}
-            title="Topics Learned"
-            value={profile.topics?.length || 0}
-            subtitle="areas of study"
+            title="Topics Covered"
+            value={profile.sessionTopics?.length || 0}
+            subtitle="in tutoring sessions"
           />
           <StatCard
             icon={<Zap size={20} />}
@@ -105,8 +98,8 @@ export default function ProgressPage() {
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {profile.strengths?.length > 0 ? (
-                profile.strengths.map((skill, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                profile.strengths.map((skill) => (
+                  <div key={skill} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{
                       width: 8, height: 8, borderRadius: '50%',
                       background: 'var(--accent)', flexShrink: 0,
@@ -127,8 +120,8 @@ export default function ProgressPage() {
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {profile.weaknesses?.length > 0 ? (
-                profile.weaknesses.map((skill, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                profile.weaknesses.map((skill) => (
+                  <div key={skill} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{
                       width: 8, height: 8, borderRadius: '50%',
                       background: '#ff6b6b', flexShrink: 0,
@@ -146,13 +139,13 @@ export default function ProgressPage() {
         {/* Topics Progress */}
         <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', padding: '20px', border: '1px solid var(--border)', marginBottom: 32 }}>
           <h3 style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <BookOpen size={16} /> Topics Explored
+            <BookOpen size={16} /> Topics Covered in Sessions
           </h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {profile.topics?.length > 0 ? (
-              profile.topics.map((topic, i) => (
+            {profile.sessionTopics?.length > 0 ? (
+              profile.sessionTopics.map((topic) => (
                 <div
-                  key={i}
+                  key={topic}
                   style={{
                     padding: '8px 12px',
                     background: 'var(--accent-muted)',
@@ -166,7 +159,7 @@ export default function ProgressPage() {
                 </div>
               ))
             ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No topics learned yet</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No topics covered yet — start a tutoring session to track progress here</p>
             )}
           </div>
         </div>
@@ -180,7 +173,7 @@ export default function ProgressPage() {
             {profile.sessionHistory?.length > 0 ? (
               profile.sessionHistory.slice(0, 10).map((session, i) => (
                 <div
-                  key={i}
+                  key={session.timestamp}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',

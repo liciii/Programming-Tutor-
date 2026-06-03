@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../utils/fileLock.js', () => ({
-  readJSON: vi.fn(),
-  writeJSON: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../../../utils/fileLock.js', () => {
+  const readJSON = vi.fn();
+  const writeJSON = vi.fn().mockResolvedValue(undefined);
+  const updateJSON = vi.fn(async (path, updater) => {
+    const current = await readJSON(path);
+    const result = await updater(current);
+    if (result != null) await writeJSON(path, result);
+    return result;
+  });
+  return { readJSON, writeJSON, updateJSON };
+});
 
 import { readJSON, writeJSON } from '../../../utils/fileLock.js';
 import {
@@ -12,6 +19,9 @@ import {
   findUserById,
   createUser,
   updateUser,
+  setResetToken,
+  findUserByResetToken,
+  clearResetToken,
 } from '../../../services/userService.js';
 
 const SAMPLE_USERS = [
@@ -83,6 +93,61 @@ describe('updateUser', () => {
 
   it('returns null when user does not exist', async () => {
     expect(await updateUser('ghost', { name: 'Ghost' })).toBeNull();
+    expect(writeJSON).not.toHaveBeenCalled();
+  });
+});
+
+describe('setResetToken', () => {
+  it('stores token and expiry on the matching user', async () => {
+    const found = await setResetToken('alice@test.com', 'tok123', '2099-01-01T00:00:00.000Z');
+    expect(found).toBe(true);
+    const [, written] = writeJSON.mock.calls[0];
+    const alice = written.find(u => u.id === 'user-1');
+    expect(alice.resetToken).toBe('tok123');
+    expect(alice.resetTokenExpiry).toBe('2099-01-01T00:00:00.000Z');
+  });
+
+  it('returns false and skips write when email not found', async () => {
+    const found = await setResetToken('nobody@test.com', 'tok', 'exp');
+    expect(found).toBe(false);
+    expect(writeJSON).not.toHaveBeenCalled();
+  });
+
+  it('is case-insensitive for the email lookup', async () => {
+    const found = await setResetToken('ALICE@TEST.COM', 'tok', 'exp');
+    expect(found).toBe(true);
+  });
+});
+
+describe('findUserByResetToken', () => {
+  it('returns the user that holds the matching token', async () => {
+    readJSON.mockResolvedValue([
+      ...SAMPLE_USERS,
+      { id: 'user-3', email: 'carol@test.com', resetToken: 'mytoken', resetTokenExpiry: '2099-01-01T00:00:00.000Z' },
+    ]);
+    const user = await findUserByResetToken('mytoken');
+    expect(user.id).toBe('user-3');
+  });
+
+  it('returns null when no user holds that token', async () => {
+    expect(await findUserByResetToken('unknown')).toBeNull();
+  });
+});
+
+describe('clearResetToken', () => {
+  it('removes resetToken and resetTokenExpiry from the user', async () => {
+    readJSON.mockResolvedValue([
+      { id: 'user-1', email: 'alice@test.com', resetToken: 'tok', resetTokenExpiry: 'exp' },
+    ]);
+    await clearResetToken('user-1');
+    const [, written] = writeJSON.mock.calls[0];
+    const user = written.find(u => u.id === 'user-1');
+    expect(user.resetToken).toBeUndefined();
+    expect(user.resetTokenExpiry).toBeUndefined();
+  });
+
+  it('skips write when user not found', async () => {
+    await clearResetToken('ghost');
     expect(writeJSON).not.toHaveBeenCalled();
   });
 });

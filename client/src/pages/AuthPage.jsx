@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Code2, BookOpen, Zap, ArrowRight } from 'lucide-react';
 
@@ -43,7 +43,7 @@ export default function AuthPage() {
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.04, backgroundImage: 'radial-gradient(circle at 25% 25%, #4f8ef7 0%, transparent 50%), radial-gradient(circle at 75% 75%, #3ecf8e 0%, transparent 50%)' }} />
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 48 }}>
-            <div style={{ width: 36, height: 36, background: 'var(--accent)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 36, height: 36, background: 'var(--accent)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Code2 size={20} color="#fff" />
             </div>
             <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>CodeTutor AI</span>
@@ -53,7 +53,7 @@ export default function AuthPage() {
             <span style={{ color: 'var(--accent)' }}>programming mentor</span>
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.7, marginBottom: 48, maxWidth: 380 }}>
-            An AI tutor that adapts to your level, learning style, and goals — giving you personalized guidance every step of the way.
+            An AI tutor that adapts to your skill level, learning style, and goals, giving you personalized guidance every step of the way!
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {[
@@ -62,7 +62,7 @@ export default function AuthPage() {
               { icon: <Code2 size={18} />, title: 'Any language', desc: 'Python, JavaScript, Java, and more' },
             ].map(f => (
               <div key={f.title} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ width: 36, height: 36, background: 'var(--accent-muted)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)', flexShrink: 0 }}>
+                <div style={{ width: 36, height: 36, background: 'var(--accent-muted)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)', flexShrink: 0 }}>
                   {f.icon}
                 </div>
                 <div>
@@ -101,8 +101,15 @@ export default function AuthPage() {
               <input className="input-base" type="email" placeholder="you@example.com" value={form.email} onChange={set('email')} required />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>Password</label>
-              <input className="input-base" type="password" placeholder="••••••••" value={form.password} onChange={set('password')} required minLength={6} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>Password</label>
+                {mode === 'login' && (
+                  <Link to="/forgot-password" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
+              <input className="input-base" type="password" placeholder="••••••••" value={form.password} onChange={set('password')} required minLength={8} />
             </div>
 
             {error && (

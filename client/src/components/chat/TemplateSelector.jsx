@@ -51,7 +51,7 @@ export default function TemplateSelector({ selected, onChange }) {
             onClick={() => { onChange(null); setOpen(false); }}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 10px', borderRadius: 8, background: !selected ? 'var(--accent-muted)' : 'transparent',
+              padding: '8px 10px', borderRadius: 0, background: !selected ? 'var(--accent-muted)' : 'transparent',
               color: !selected ? 'var(--accent)' : 'var(--text-secondary)',
               border: 'none', cursor: 'pointer', fontSize: 13, textAlign: 'left',
               transition: 'all 0.15s',
@@ -74,7 +74,7 @@ export default function TemplateSelector({ selected, onChange }) {
               onClick={() => { onChange(t.id); setOpen(false); }}
               style={{
                 width: '100%', display: 'flex', alignItems: 'flex-start', gap: 8,
-                padding: '8px 10px', borderRadius: 8,
+                padding: '8px 10px', borderRadius: 0,
                 background: selected === t.id ? 'var(--accent-muted)' : 'transparent',
                 color: selected === t.id ? 'var(--accent)' : 'var(--text-secondary)',
                 border: 'none', cursor: 'pointer', fontSize: 13, textAlign: 'left',

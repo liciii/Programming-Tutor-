@@ -8,6 +8,7 @@ vi.mock('../../services/profileService.js', () => ({
   saveProfile: vi.fn(),
   appendSessionHistory: vi.fn(),
   appendChatHistory: vi.fn(),
+  appendDiagnosticEvidence: vi.fn(),
   createEmptyProfile: vi.fn(),
 }));
 

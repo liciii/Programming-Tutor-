@@ -1,7 +1,11 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
@@ -12,8 +16,6 @@ import chatRoutes from './routes/chat.js';
 import templateRoutes from './routes/templates.js';
 import fileRoutes from './routes/files.js';
 import { authenticateToken } from './middleware/auth.js';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,38 +28,50 @@ dirs.forEach(dir => {
 
 const app = express();
 
-// CORS: allow localhost in dev; set ALLOWED_ORIGIN env var for production
-const corsOrigin = process.env.ALLOWED_ORIGIN ?? /^http:\/\/localhost:\d+$/;
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc:  ["'self'"],
+      styleSrc:   ["'self'", "'unsafe-inline'"],
+      imgSrc:     ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc:    ["'self'", 'data:'],
+      objectSrc:  ["'none'"],
+      frameSrc:   ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+app.use(compression());
+
+const corsOrigin = process.env.ALLOWED_ORIGIN
+  ?? (process.env.NODE_ENV === 'production' ? false : /^http:\/\/localhost:\d+$/);
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json());
 
-// Brute-force protection on auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
+// Minimal rate limit only on forgot-password: prevents accidentally triggering
+// an email spam loop during local testing. No other limits are applied — this
+// is a single-user local prototype with no multi-tenant abuse surface.
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' },
+  message: { error: 'Too many reset attempts. Please wait before trying again.' },
 });
 
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth/forgot-password', forgotPasswordLimiter);
+app.use('/api/auth', authRoutes);
 app.use('/api/profile', authenticateToken, profileRoutes);
 app.use('/api/chat', authenticateToken, chatRoutes);
 app.use('/api/templates', authenticateToken, templateRoutes);
 app.use('/api/files', authenticateToken, fileRoutes);
 
-// Serve uploads as attachments to prevent in-browser rendering of uploaded files (XSS mitigation)
-app.use('/uploads', express.static(join(__dirname, 'data', 'uploads'), {
-  setHeaders: (res) => {
-    res.setHeader('Content-Disposition', 'attachment');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  },
-}));
-
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
-// Serve built React client when running in production (Docker)
 const publicDir = join(__dirname, 'public');
 if (fs.existsSync(publicDir)) {
   app.use(express.static(publicDir));

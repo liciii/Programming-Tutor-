@@ -1,6 +1,6 @@
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readJSON, writeJSON } from '../utils/fileLock.js';
+import { readJSON, updateJSON } from '../utils/fileLock.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17,35 +17,54 @@ export async function getProfile(userId) {
 
 export async function saveProfile(userId, profile) {
   const data = { ...profile, userId, updatedAt: new Date().toISOString() };
-  await writeJSON(profilePath(userId), data);
+  await updateJSON(profilePath(userId), () => data);
   return data;
 }
 
+// Atomic read-merge-write — safe under concurrent requests.
 export async function updateProfile(userId, updates) {
-  const existing = (await getProfile(userId)) ?? {};
-  return saveProfile(userId, { ...existing, ...updates });
+  return updateJSON(profilePath(userId), (existing) => ({
+    ...(existing ?? {}),
+    ...updates,
+    userId,
+    updatedAt: new Date().toISOString(),
+  }));
 }
 
 export async function appendSessionHistory(userId, entry) {
-  const profile = await getProfile(userId);
-  if (!profile) return null;
-  const history = profile.sessionHistory ?? [];
-  history.push({ ...entry, timestamp: new Date().toISOString() });
-  if (history.length > 50) history.splice(0, history.length - 50);
-  return updateProfile(userId, { sessionHistory: history });
+  return updateJSON(profilePath(userId), (profile) => {
+    if (!profile) return null;
+    const history = [...(profile.sessionHistory ?? []), { ...entry, timestamp: new Date().toISOString() }];
+    if (history.length > 50) history.splice(0, history.length - 50);
+    return { ...profile, sessionHistory: history, updatedAt: new Date().toISOString() };
+  });
 }
 
 export async function appendChatHistory(userId, chat) {
-  const profile = await getProfile(userId);
-  if (!profile) return null;
-  const history = profile.chatHistory ?? [];
-  history.unshift({
-    id: Date.now().toString(),
-    createdAt: new Date().toISOString(),
-    messages: chat,
+  return updateJSON(profilePath(userId), (profile) => {
+    if (!profile) return null;
+    const history = [
+      {
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        messages: chat,
+      },
+      ...(profile.chatHistory ?? []),
+    ];
+    if (history.length > 50) history.splice(50);
+    return { ...profile, chatHistory: history, updatedAt: new Date().toISOString() };
   });
-  if (history.length > 50) history.splice(50);
-  return updateProfile(userId, { chatHistory: history });
+}
+
+// Atomically appends one diagnostic evidence object to the array.
+// Reads the current array inside the updater so concurrent Phase 2 turns
+// can't overwrite each other's evidence.
+export async function appendDiagnosticEvidence(userId, evidence) {
+  return updateJSON(profilePath(userId), (profile) => {
+    if (!profile) return null;
+    const existing = profile.diagnosticEvidence ?? [];
+    return { ...profile, diagnosticEvidence: [...existing, evidence], updatedAt: new Date().toISOString() };
+  });
 }
 
 export async function createEmptyProfile(userId) {
@@ -54,7 +73,8 @@ export async function createEmptyProfile(userId) {
     targetLanguage: null,
     learningStyle: null,
     topics: [],
-    interests: [],
+    sessionTopics: [],
+    realLifeInterests: [],
     strengths: [],
     weaknesses: [],
     sessionHistory: [],
@@ -62,6 +82,7 @@ export async function createEmptyProfile(userId) {
     files: [],
     externalSources: [],
     onboardingComplete: false,
+    onboardingPhase: 1,
     preferredLLM: 'openai',
     customApiKeys: {},
   });

@@ -179,4 +179,43 @@ describe('buildSystemPrompt', () => {
   it('returns null for a non-existent template', async () => {
     expect(await buildSystemPrompt('ghost', {}, 'user-1')).toBeNull();
   });
+
+  it('resolves {{recentTopics}} from session topics when present', async () => {
+    const prompt = await buildSystemPrompt(
+      'default-exercise',
+      { sessionTopics: ['recursion'], topics: ['arrays'] },
+      'user-1',
+    );
+    expect(prompt).toContain('recursion');
+  });
+
+  it('falls back to standing topics for {{recentTopics}} when no session topics', async () => {
+    const prompt = await buildSystemPrompt(
+      'default-exercise',
+      { sessionTopics: [], topics: ['arrays'] },
+      'user-1',
+    );
+    expect(prompt).toContain('arrays');
+  });
+
+  it('uses a default for {{recentTopics}} when no topics at all', async () => {
+    const prompt = await buildSystemPrompt('default-exercise', {}, 'user-1');
+    expect(prompt).toContain('none yet this session');
+  });
+
+  it('strips unresolved placeholders from a custom template', async () => {
+    readJSON.mockResolvedValue([
+      {
+        id: 'tmpl-typo',
+        ownerId: 'user-1',
+        isDefault: false,
+        name: 'Typo',
+        systemPrompt: 'Hello {{programmingLevel}} learner. Focus: {{topcis}}.',
+      },
+    ]);
+    const prompt = await buildSystemPrompt('tmpl-typo', { programmingLevel: 'advanced' }, 'user-1');
+    expect(prompt).not.toContain('{{');
+    expect(prompt).not.toContain('}}');
+    expect(prompt).toContain('advanced');
+  });
 });

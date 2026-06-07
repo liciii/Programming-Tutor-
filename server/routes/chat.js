@@ -1,11 +1,12 @@
 import express from 'express';
-import { getProfile, updateProfile, appendSessionHistory } from '../services/profileService.js';
+import { getProfile, updateProfile } from '../services/profileService.js';
 import { buildSystemPrompt } from '../services/templateService.js';
-import { streamChatCompletion, detectIntent, extractProfileUpdates, summariseSession } from '../services/llmService.js';
+import { streamChatCompletion, detectIntent, extractProfileUpdates } from '../services/llmService.js';
+import { buildFileContext } from '../services/fileContentService.js';
 
 const router = express.Router();
 
-// Hardcoded fallback used only if both template lookups return null (e.g. missing templates file).
+// hardcoded fallback used only if both template lookups return null 
 const FALLBACK_SYSTEM_PROMPT = `You are an expert programming tutor. Help the student learn programming clearly and encouragingly.`;
 
 router.post('/message', async (req, res) => {
@@ -33,20 +34,8 @@ router.post('/message', async (req, res) => {
       return res.status(400).json({ error: 'Please complete onboarding first' });
     }
 
-    const baseUrl = process.env.SERVER_URL || 'http://localhost:3001';
-    const fileContext = (profile.files || [])
-      .map(f => `- ${f.name} (${f.mimeType})`)
-      .join('\n');
-    const filePrompt = fileContext
-      ? `\n\nThe user has uploaded these files (reference them by name in your responses):\n${fileContext}\n`
-      : '';
-
-    const sourceContext = (profile.externalSources || [])
-      .map(s => `- ${s.url}`)
-      .join('\n');
-    const sourcePrompt = sourceContext
-      ? `\n\nThe user has provided these online sources (you can reference them as needed):\n${sourceContext}\n`
-      : '';
+    const { textContext, imageFiles } = await buildFileContext(profile.files || []);
+    const filePrompt = textContext;
 
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
     const resolvedTemplateId = templateId || detectIntent(lastUserMessage);
@@ -59,7 +48,7 @@ router.post('/message', async (req, res) => {
       (await buildSystemPrompt('default-explain', profile, userId)) ||
       FALLBACK_SYSTEM_PROMPT;
 
-    systemPrompt += filePrompt + sourcePrompt;
+    systemPrompt += filePrompt;
 
     const recentHistory = (profile.sessionHistory || []).slice(-5);
     if (recentHistory.length > 0) {
@@ -67,27 +56,18 @@ router.post('/message', async (req, res) => {
       systemPrompt += `\n\nRecent session context:\n${historyContext}`;
     }
 
-    // Stream to the client and capture full response text for post-processing.
-    const fullContent = await streamChatCompletion({ messages, systemPrompt, provider, apiKey: chatApiKey, res });
+    await streamChatCompletion({ messages, systemPrompt, provider, apiKey: chatApiKey, imageFiles, res });
 
-    // Background profile update — fire-and-forget, does not affect the streamed response.
-    // extractProfileUpdates and summariseSession run in parallel to halve the latency.
-    // Profile extraction is skipped after the first 2 turns (early turns are info-rich)
-    // and then only every 5 turns — skills change slowly and extraction costs an API call.
+    // bckrnd profile update, fire-and-forget
+    // prof extraction skipped after first 2 turns, then only every 5 turns(skills change slowly and extraction costs an API call)
     (async () => {
       try {
-        const allMessages = [...messages, { role: 'assistant', content: fullContent }];
         const userMsgCount = messages.filter(m => m.role === 'user').length;
         const shouldExtract = userMsgCount <= 2 || userMsgCount % 5 === 0;
+        if (!shouldExtract) return;
 
         const conversationSummary = messages.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n');
-
-        const [updates, summary] = await Promise.all([
-          shouldExtract
-            ? extractProfileUpdates(conversationSummary, profile)
-            : Promise.resolve({}),
-          summariseSession(allMessages),
-        ]);
+        const updates = await extractProfileUpdates(conversationSummary, profile);
 
         const profileUpdates = {};
         if (updates.strengths?.length) {
@@ -96,10 +76,6 @@ router.post('/message', async (req, res) => {
         if (updates.weaknesses?.length) {
           profileUpdates.weaknesses = [...new Set([...(profile.weaknesses || []), ...updates.weaknesses])];
         }
-        // Topics extracted here come from actual tutoring sessions, not onboarding.
-        // They are stored separately so the Progress page can distinguish between
-        // the user's stated learning goals (profile.topics, set at onboarding) and
-        // topics they have genuinely worked through in sessions (sessionTopics).
         if (updates.topics?.length) {
           profileUpdates.sessionTopics = [...new Set([...(profile.sessionTopics || []), ...updates.topics])];
         }
@@ -110,11 +86,6 @@ router.post('/message', async (req, res) => {
         if (Object.keys(profileUpdates).length > 0) {
           await updateProfile(userId, profileUpdates);
         }
-
-        await appendSessionHistory(userId, {
-          summary,
-          templateUsed: resolvedTemplateId,
-        });
       } catch (e) {
         console.error('Profile update error:', e);
       }

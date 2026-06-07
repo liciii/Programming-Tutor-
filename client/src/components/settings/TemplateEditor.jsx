@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { Plus, Pencil, Trash2, Lock, Save, X, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Pencil, Trash2, Lock, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function TemplateEditor() {
   const [templates, setTemplates] = useState([]);
   const [editing, setEditing] = useState(null); // { id, name, description, systemPrompt } or 'new'
   const [form, setForm] = useState({ name: '', description: '', systemPrompt: '' });
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [error, setError] = useState('');
 
@@ -42,8 +41,6 @@ export default function TemplateEditor() {
       }
       await load();
       setEditing(null);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -77,7 +74,6 @@ export default function TemplateEditor() {
         </button>
       </div>
 
-      {/* Available placeholders */}
       <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: 20, marginTop: 12 }}>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Available placeholders (auto-filled from learner profile):</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -87,7 +83,6 @@ export default function TemplateEditor() {
         </div>
       </div>
 
-      {/* New / edit form */}
       {editing && (
         <div className="card fade-in" style={{ marginBottom: 20, borderColor: 'var(--accent)' }}>
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
@@ -124,7 +119,6 @@ export default function TemplateEditor() {
         </div>
       )}
 
-      {/* Template list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {templates.map(t => (
           <div key={t.id} className="card" style={{ padding: '14px 16px' }}>

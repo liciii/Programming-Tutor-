@@ -1,12 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { FileText, Link2, Plus, Trash2, AlertCircle, Download, UploadCloud } from 'lucide-react';
+import { FileText, Trash2, AlertCircle, Download, UploadCloud } from 'lucide-react';
 
 export default function LibraryPage() {
   const [profile, setProfile] = useState(null);
-  const [newSource, setNewSource] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [urlError, setUrlError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -15,8 +12,6 @@ export default function LibraryPage() {
   useEffect(() => {
     api.get('/profile').then(setProfile).catch(() => {});
   }, []);
-
-  // ── File upload ────────────────────────────────────────────────────────────
 
   const uploadFile = async (file) => {
     setUploadError('');
@@ -47,8 +42,6 @@ export default function LibraryPage() {
   const handleDragOver = (e) => { e.preventDefault(); setDragging(true); };
   const handleDragLeave = () => setDragging(false);
 
-  // ── File management ────────────────────────────────────────────────────────
-
   const handleDeleteFile = async (fileId) => {
     try {
       await api.deleteFile(fileId);
@@ -66,43 +59,6 @@ export default function LibraryPage() {
     }
   };
 
-  // ── Sources ────────────────────────────────────────────────────────────────
-
-  const saveSources = async (sources) => {
-    setSaving(true);
-    try {
-      await api.put('/profile', { externalSources: sources });
-      setProfile(p => ({ ...p, externalSources: sources }));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const addSource = () => {
-    const url = newSource.trim();
-    if (!url) return;
-    try {
-      new URL(url);
-    } catch {
-      setUrlError('Enter a valid URL including https://');
-      return;
-    }
-    setUrlError('');
-    saveSources([
-      ...(profile.externalSources || []),
-      { id: crypto.randomUUID(), url, addedAt: new Date().toISOString() },
-    ]);
-    setNewSource('');
-  };
-
-  const removeSource = (id) => {
-    saveSources((profile.externalSources || []).filter(s => s.id !== id));
-  };
-
-  const handleSourceKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addSource(); }
-  };
-
   if (!profile) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading…</div>;
 
   const files = profile.files || [];
@@ -114,14 +70,12 @@ export default function LibraryPage() {
           Library
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-          Upload learning material and add online sources. The assistant draws on all of these when answering your questions.
+          Upload files and the tutor will use them when answering your questions.
         </p>
       </div>
 
       <div style={{ padding: 24, maxWidth: 920, margin: '0 auto' }}>
-
-        {/* ── Uploaded Files ─────────────────────────────────────────────── */}
-        <section style={{ marginBottom: 40 }}>
+        <section>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <h2 style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
               <FileText size={18} /> Uploaded Files
@@ -146,7 +100,6 @@ export default function LibraryPage() {
             </div>
           )}
 
-          {/* Drop zone — always visible so drag-and-drop works */}
           <div
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -169,7 +122,7 @@ export default function LibraryPage() {
                   Drag &amp; drop a file here, or click to browse
                 </p>
                 <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                  Upload lecture notes, slides, PDFs, or any reference material
+                  Upload lecture notes, slides, PDFs, code files, or any reference material
                 </p>
               </>
             ) : (
@@ -222,54 +175,6 @@ export default function LibraryPage() {
                 </div>
               ))}
             </div>
-          )}
-        </section>
-
-        {/* ── Online Sources ─────────────────────────────────────────────── */}
-        <section>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Link2 size={18} /> Online Sources
-          </h2>
-          <div style={{ display: 'flex', gap: 10, marginBottom: urlError ? 6 : 12 }}>
-            <input
-              value={newSource}
-              onChange={e => { setNewSource(e.target.value); setUrlError(''); }}
-              onKeyDown={handleSourceKeyDown}
-              placeholder="https://example.com/article"
-              style={{ flex: 1, padding: '10px 12px', border: `1px solid ${urlError ? 'var(--red)' : 'var(--border)'}`, background: 'var(--bg-elevated)' }}
-            />
-            <button
-              onClick={addSource}
-              disabled={saving || !newSource.trim()}
-              className="btn btn-primary btn-sm"
-              style={{ padding: '10px 14px' }}
-            >
-              <Plus size={14} /> Add
-            </button>
-          </div>
-          {urlError && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>
-              <AlertCircle size={12} /> {urlError}
-            </div>
-          )}
-
-          {profile.externalSources?.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {profile.externalSources.map(source => (
-                <div key={source.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                  <a href={source.url} target="_blank" rel="noreferrer" style={{ color: 'var(--text-primary)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 12 }}>
-                    {source.url}
-                  </a>
-                  <button onClick={() => removeSource(source.id)} className="btn btn-ghost btn-sm" title="Remove" style={{ padding: 6 }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-              Add URLs to documentation, articles, or course pages so the assistant can reference them.
-            </p>
           )}
         </section>
       </div>

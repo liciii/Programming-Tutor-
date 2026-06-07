@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Code2, MessageSquare, Settings, LogOut, ChevronRight, User, BookOpen, TrendingUp, BookOpen as LibraryIcon, Clock } from 'lucide-react';
+import { Code2, MessageSquare, Settings, LogOut, ChevronRight, User, TrendingUp, BookOpen as LibraryIcon, Clock } from 'lucide-react';
 
 export default function AppLayout({ children }) {
   const { user, logout } = useAuth();
@@ -21,7 +21,6 @@ export default function AppLayout({ children }) {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      {/* Sidebar */}
       <aside style={{
         width: collapsed ? 60 : 'var(--sidebar-w)',
         flexShrink: 0,
@@ -32,7 +31,6 @@ export default function AppLayout({ children }) {
         transition: 'width 0.2s ease',
         overflow: 'hidden',
       }}>
-        {/* Logo */}
         <div style={{ padding: '16px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 57 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
             <div style={{ width: 28, height: 28, background: 'var(--accent)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -45,7 +43,6 @@ export default function AppLayout({ children }) {
           </button>
         </div>
 
-        {/* Nav */}
         <nav style={{ flex: 1, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {navItems.map(item => {
             const active = location.pathname === item.to;
@@ -69,7 +66,6 @@ export default function AppLayout({ children }) {
           })}
         </nav>
 
-        {/* User footer */}
         <div style={{ padding: '10px 8px', borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
             <div style={{ width: 28, height: 28, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -88,7 +84,6 @@ export default function AppLayout({ children }) {
         </div>
       </aside>
 
-      {/* Main content */}
       <main style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
         {children}
       </main>

@@ -90,8 +90,7 @@ router.post('/forgot-password', async (req, res) => {
 
     const found = await setResetToken(email, token, expiry);
 
-    // Send email only if account exists — always return the same message to
-    // prevent email enumeration (attacker can't tell if an address is registered).
+    // send email if user exists, don't reveal whether email is registered 
     if (found) {
       await sendPasswordResetEmail(email.toLowerCase(), token);
     }
@@ -129,7 +128,7 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// Reuse authenticateToken instead of duplicating JWT verification logic.
+// reuse authetoken instead of duplicating JWT verification logic.
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const user = await findUserById(req.user.id);

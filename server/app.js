@@ -52,9 +52,6 @@ app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use(express.json());
 
-// Minimal rate limit only on forgot-password: prevents accidentally triggering
-// an email spam loop during local testing. No other limits are applied — this
-// is a single-user local prototype with no multi-tenant abuse surface.
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,

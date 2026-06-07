@@ -38,15 +38,6 @@ import LibraryPage from './pages/LibraryPage';
 import ChatHistoryPage from './pages/ChatHistoryPage';
 import AppLayout from './components/shared/AppLayout';
 
-function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return <FullScreenLoader />;
-  if (!user) return <Navigate to="/auth" replace />;
-  return children;
-}
-
-// Protects the onboarding route: redirects to / if onboarding is already done
-// so a completed user can never reach the onboarding page (and trigger 401s).
 function OnboardingRoute({ children }) {
   const { user, onboardingComplete, loading } = useAuth();
   if (loading) return <FullScreenLoader />;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import TemplateEditor from '../components/settings/TemplateEditor';
 import { Save, Key, User, Layers, Check, ShieldCheck } from 'lucide-react';
@@ -73,7 +73,7 @@ export default function SettingsPage() {
   );
 }
 
-// ---- Profile Tab ----
+// profiletab
 function ProfileTab() {
   const [profile, setProfile] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -149,12 +149,12 @@ function ProfileTab() {
             placeholder="e.g. basketball, cooking, travel, photography" />
         </Field>
 
-        <Field label="Strengths (auto-detected)" hint="Comma-separated — edit if needed">
+        <Field label="Strengths (auto-detected)" hint="Comma-separated, edit if needed">
           <input className="input-base" value={(profile.strengths || []).join(', ')} onChange={setArray('strengths')}
             placeholder="e.g. variables, basic syntax" />
         </Field>
 
-        <Field label="Weaknesses (auto-detected)" hint="Comma-separated — edit if needed">
+        <Field label="Weaknesses (auto-detected)" hint="Comma-separated, edit if needed">
           <input className="input-base" value={(profile.weaknesses || []).join(', ')} onChange={setArray('weaknesses')}
             placeholder="e.g. recursion, pointers" />
         </Field>
@@ -179,10 +179,10 @@ function Field({ label, hint, children }) {
   );
 }
 
-// ---- API Keys Tab ----
+// api keys tab
 function ApiKeysTab() {
   const [preferredLLM, setPreferredLLM] = useState('openai');
-  // keys holds the NEW values the user is typing — empty means "no change"
+  // keys holds the NEW values the user is typing; empty means "no change"
   const [keys, setKeys] = useState({ openai: '', gemini: '', anthropic: '' });
   // configuredKeys is the set of provider IDs that already have a stored key
   const [configuredKeys, setConfiguredKeys] = useState([]);
@@ -201,13 +201,12 @@ function ApiKeysTab() {
   const save = async () => {
     setSaving(true);
     try {
-      // Only send key fields that the user explicitly typed — empty string means
-      // "keep whatever is stored" so we fall back to the existing value server-side
+      // send key fields the user explicitly typed ignre empty fields
       await api.put('/profile', {
         preferredLLM,
         customApiKeys: keys,
       });
-      // Update local state: mark provider as configured if a non-empty key was entered
+      // mrk provider as configured if a non-empty key was entered
       setConfiguredKeys(prev => {
         const next = new Set(prev);
         for (const [id, val] of Object.entries(keys)) {
@@ -231,7 +230,6 @@ function ApiKeysTab() {
         The server's built-in keys are used as fallbacks when no custom key is provided.
       </p>
 
-      {/* Provider selector */}
       <div style={{ marginBottom: 28 }}>
         <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 500 }}>
           Preferred provider
@@ -268,7 +266,6 @@ function ApiKeysTab() {
         </div>
       </div>
 
-      {/* Key inputs for every provider */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20 }}>
         <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>API Keys</p>
         {PROVIDERS.map(p => (

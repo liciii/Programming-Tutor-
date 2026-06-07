@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -6,7 +6,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!localStorage.getItem('token'));
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -18,8 +18,6 @@ export function AuthProvider({ children }) {
         })
         .catch(() => localStorage.removeItem('token'))
         .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
     }
   }, []);
 
@@ -54,4 +52,5 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

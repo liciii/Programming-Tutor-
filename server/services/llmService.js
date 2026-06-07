@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // ---------------------------------------------------------------------------
-// Model constants — change once here to affect the whole service
+// model names, update here to change them everywhere
 // ---------------------------------------------------------------------------
 const MODELS = {
   openai:    'gpt-4o',
@@ -11,14 +11,10 @@ const MODELS = {
   gemini:    'gemini-3.0-flash',
 };
 
-// Maximum number of conversation turns to send to the LLM.
-// Keeps token usage bounded as conversations grow long.
+// max turns sent to LLM 
 const MAX_CONTEXT_MESSAGES = 40;
 
-// ---------------------------------------------------------------------------
-// Intent detection — more specific patterns listed first to prevent broad
-// patterns (e.g. "what is") from masking specific ones (e.g. "what is wrong")
-// ---------------------------------------------------------------------------
+// intent detection 
 export function detectIntent(message) {
   const msg = message.toLowerCase();
   if (/debug|error|bug|broken|not working|fix|wrong|fail/.test(msg))  return 'default-debug';
@@ -29,11 +25,8 @@ export function detectIntent(message) {
   return 'default-explain';
 }
 
-// ---------------------------------------------------------------------------
-// Client factories — lazy singletons for server-key clients so the SDK does
-// not create a new HTTP agent on every request. Custom-key clients are always
-// fresh (different key = different client).
-// ---------------------------------------------------------------------------
+// client factories - reuse instances for server keys
+//  custom keys always get a fresh client
 
 let _defaultOpenAI = null;
 let _defaultAnthropic = null;
@@ -54,14 +47,46 @@ function geminiClient(apiKey) {
   return (_defaultGemini ??= new GoogleGenerativeAI(process.env.GEMINI_API_KEY));
 }
 
-// Picks the first server-side provider that has an env key configured.
-// Used by internal background tasks (extraction, summarisation) so they are
-// never dependent on the user's chosen provider or custom keys.
-function serverProvider() {
-  if (process.env.OPENAI_API_KEY)    return 'openai';
-  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
-  if (process.env.GEMINI_API_KEY)    return 'gemini';
-  throw new Error('No server-side API key configured (OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY)');
+// one fixed provider for all internal tasks (onboarding, profile extraction, summaries etc)
+// keeps JSON output consistent and separate from whatever provider the user picked
+// set INTERNAL_LLM_PROVIDER to override (openai | anthropic | gemini)
+export const INTERNAL_PROVIDER = process.env.INTERNAL_LLM_PROVIDER || 'openai';
+
+// ---------------------------------------------------------------------------
+// multimodal helpers - attach image files to the last user message
+// each provider has its own content shape so we need separate functions
+// ---------------------------------------------------------------------------
+
+function injectImagesOpenAI(messages, imageFiles) {
+  if (!imageFiles.length) return messages;
+  const idx = messages.findLastIndex(m => m.role === 'user');
+  if (idx === -1) return messages;
+  return messages.map((m, i) => i !== idx ? m : {
+    role: m.role,
+    content: [
+      { type: 'text', text: m.content },
+      ...imageFiles.map(img => ({
+        type: 'image_url',
+        image_url: { url: `data:${img.mimeType};base64,${img.base64}` },
+      })),
+    ],
+  });
+}
+
+function injectImagesAnthropic(messages, imageFiles) {
+  if (!imageFiles.length) return messages;
+  const idx = messages.findLastIndex(m => m.role === 'user');
+  if (idx === -1) return messages;
+  return messages.map((m, i) => i !== idx ? m : {
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: [
+      ...imageFiles.map(img => ({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mimeType, data: img.base64 },
+      })),
+      { type: 'text', text: m.content },
+    ],
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -79,8 +104,7 @@ function endSse(res, fullContent) {
   res.end();
 }
 
-// Trim conversation to the most recent MAX_CONTEXT_MESSAGES turns so token
-// usage stays bounded as conversations grow.
+// cut down to the last N messages so long conversations don't eat up the token budget
 function trimMessages(messages) {
   if (messages.length <= MAX_CONTEXT_MESSAGES) return messages;
   return messages.slice(-MAX_CONTEXT_MESSAGES);
@@ -90,19 +114,20 @@ function trimMessages(messages) {
 // OpenAI streaming
 // ---------------------------------------------------------------------------
 
-async function streamOpenAI({ messages, systemPrompt, apiKey, res }) {
+async function streamOpenAI({ messages, systemPrompt, apiKey, res, imageFiles = [] }) {
   const client = openAIClient(apiKey);
 
-  // Create the stream before setting SSE headers so auth errors are still
-  // catchable as JSON responses in the route's try/catch block
+  const trimmed = injectImagesOpenAI(
+    trimMessages(messages).map(m => ({ role: m.role, content: m.content })),
+    imageFiles,
+  );
+
+  // start the stream before setting SSE headers so auth errors can still be caught as JSON
   const stream = await client.chat.completions.create({
     model: MODELS.openai,
     max_tokens: 1500,
     stream: true,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...trimMessages(messages).map(m => ({ role: m.role, content: m.content })),
-    ],
+    messages: [{ role: 'system', content: systemPrompt }, ...trimmed],
   });
 
   setSseHeaders(res);
@@ -124,17 +149,19 @@ async function streamOpenAI({ messages, systemPrompt, apiKey, res }) {
 // Anthropic Claude streaming
 // ---------------------------------------------------------------------------
 
-async function streamAnthropic({ messages, systemPrompt, apiKey, res }) {
+async function streamAnthropic({ messages, systemPrompt, apiKey, res, imageFiles = [] }) {
   const client = anthropicClient(apiKey);
+
+  const trimmed = injectImagesAnthropic(
+    trimMessages(messages).map(m => ({ role: m.role, content: m.content })),
+    imageFiles,
+  );
 
   const stream = await client.messages.create({
     model: MODELS.anthropic,
     max_tokens: 1500,
     system: systemPrompt,
-    messages: trimMessages(messages).map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
+    messages: trimmed,
     stream: true,
   });
 
@@ -159,9 +186,8 @@ async function streamAnthropic({ messages, systemPrompt, apiKey, res }) {
 // Google Gemini streaming
 // ---------------------------------------------------------------------------
 
-// Converts the messages array to Gemini's { history, lastMessage } format.
-// Gemini requires strictly alternating user/model turns so consecutive
-// same-role messages are merged before building the history.
+// converts messages to Gemini's format with history + lastMessage
+// Gemini needs strictly alternating turns so we merge consecutive same-role messages
 function toGeminiFormat(messages) {
   const normalized = [];
   for (const m of messages) {
@@ -180,7 +206,7 @@ function toGeminiFormat(messages) {
   };
 }
 
-async function streamGemini({ messages, systemPrompt, apiKey, res }) {
+async function streamGemini({ messages, systemPrompt, apiKey, res, imageFiles = [] }) {
   const genAI = geminiClient(apiKey);
   const model = genAI.getGenerativeModel({
     model: MODELS.gemini,
@@ -190,9 +216,15 @@ async function streamGemini({ messages, systemPrompt, apiKey, res }) {
   const { history, lastMessage } = toGeminiFormat(trimMessages(messages));
   if (!lastMessage) throw new Error('No user message to send to Gemini');
 
-  // Create stream before setting headers so errors are catchable upstream
+  // images go first in the parts array then the text
+  const lastParts = [
+    ...imageFiles.map(img => ({ inlineData: { data: img.base64, mimeType: img.mimeType } })),
+    { text: lastMessage },
+  ];
+
+  // start stream before setting headers so errors bubble up as JSON
   const chat = model.startChat({ history });
-  const result = await chat.sendMessageStream(lastMessage);
+  const result = await chat.sendMessageStream(lastParts);
 
   setSseHeaders(res);
 
@@ -210,22 +242,21 @@ async function streamGemini({ messages, systemPrompt, apiKey, res }) {
 }
 
 // ---------------------------------------------------------------------------
-// Public streaming entry point
+// public streaming entry point
 // ---------------------------------------------------------------------------
 
-export async function streamChatCompletion({ messages, systemPrompt, provider = 'openai', apiKey, res }) {
+export async function streamChatCompletion({ messages, systemPrompt, provider = 'openai', apiKey, imageFiles = [], res }) {
   switch (provider) {
-    case 'anthropic': return streamAnthropic({ messages, systemPrompt, apiKey, res });
-    case 'gemini':    return streamGemini({ messages, systemPrompt, apiKey, res });
-    default:          return streamOpenAI({ messages, systemPrompt, apiKey, res });
+    case 'anthropic': return streamAnthropic({ messages, systemPrompt, apiKey, imageFiles, res });
+    case 'gemini':    return streamGemini({ messages, systemPrompt, apiKey, imageFiles, res });
+    default:          return streamOpenAI({ messages, systemPrompt, apiKey, imageFiles, res });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Non-streaming call — used internally (onboarding, profile extraction,
-// session summarisation). Supports all three providers so background tasks
-// use the same provider the user chose for their chat session.
-// Internal onboarding calls omit `provider` and default to 'openai'.
+// non-streaming version for internal tasks like onboarding, profile extraction
+// and session summaries - always goes through INTERNAL_PROVIDER so background
+// tasks stay on one vendor regardless of what the user picked
 // ---------------------------------------------------------------------------
 
 async function chatCompletionOpenAI({ messages, systemPrompt, apiKey, jsonMode }) {
@@ -251,7 +282,7 @@ async function chatCompletionOpenAI({ messages, systemPrompt, apiKey, jsonMode }
 async function chatCompletionAnthropic({ messages, systemPrompt, apiKey, jsonMode }) {
   const client = anthropicClient(apiKey);
   const sys = jsonMode
-    ? `${systemPrompt}\n\nRespond with valid JSON only — no prose, no markdown fences.`
+    ? `${systemPrompt}\n\nRespond with valid JSON only, no prose, no markdown fences.`
     : systemPrompt;
   const response = await client.messages.create({
     model: MODELS.anthropic,
@@ -292,11 +323,12 @@ export async function chatCompletion({ messages, systemPrompt, provider = 'opena
   }
 }
 
-// ---------------------------------------------------------------------------
-// Profile update extraction — runs after each chat turn
-// ---------------------------------------------------------------------------
+// only exported for unit tests
+export { injectImagesOpenAI, injectImagesAnthropic, trimMessages };
 
-export async function extractProfileUpdates(conversationSummary, currentProfile) {
+// profile update extraction, runs after each chat turn
+
+export async function extractProfileUpdates(conversationSummary, _currentProfile) {
   const systemPrompt = `You are analyzing a tutoring conversation to extract learner insights.
 Based on the conversation, identify any NEW information about the learner.
 Return a JSON object with ONLY the fields that should be updated. Use null for fields with no new info.
@@ -307,7 +339,7 @@ Only add to strengths/weaknesses if there is clear evidence from the conversatio
     const result = await chatCompletion({
       messages: [{ role: 'user', content: conversationSummary }],
       systemPrompt,
-      provider: serverProvider(),
+      provider: INTERNAL_PROVIDER,
       jsonMode: true,
     });
     return JSON.parse(result);
@@ -316,10 +348,8 @@ Only add to strengths/weaknesses if there is clear evidence from the conversatio
   }
 }
 
-// ---------------------------------------------------------------------------
-// Session summarisation — produces a meaningful one-sentence summary of
-// what was actually learned or discussed, rather than truncating the input.
-// ---------------------------------------------------------------------------
+// session summarization - one sentence about what was learned or discussed
+// instead of just truncating the raw conversation
 
 export async function summariseSession(messages) {
   const systemPrompt = `You are summarising a programming tutoring session in ONE concise sentence (max 120 characters).
@@ -338,10 +368,10 @@ Return only the summary sentence, no quotes or extra text.`;
     return await chatCompletion({
       messages: [{ role: 'user', content: context }],
       systemPrompt,
-      provider: serverProvider(),
+      provider: INTERNAL_PROVIDER,
     });
   } catch {
-    // Graceful fallback — never break the chat flow
+    // if summarization fails just use whatever the user last said
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     return `Discussed: ${(lastUser?.content ?? 'programming topic').substring(0, 80)}`;
   }

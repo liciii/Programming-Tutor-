@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { streamChat, api } from '../services/api';
 import MessageBubble from '../components/chat/MessageBubble';
@@ -30,18 +30,14 @@ export default function ChatPage() {
   const fileInputRef = useRef(null);
   const abortRef = useRef(null);
   const messagesRef = useRef(messages);
-  // When a chat is loaded from history, track how many messages it had so we
-  // don't re-save it on unmount unless the user actually added new messages.
+  // when a chat is loaded from history, track how many messages ist not resaved
   const loadedLengthRef = useRef(0);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
-  // Keep the ref in sync so the unmount effect can read the latest messages.
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // Auto-save when the user navigates away without clicking "New chat".
-  // Skip saving if the messages were loaded from history and no new ones were added —
-  // that would just create a duplicate entry.
+  // autosave if user leaves without clickingn ew chat 
   useEffect(() => {
     return () => {
       const msgs = messagesRef.current;
@@ -79,7 +75,6 @@ export default function ChatPage() {
     if (!loading) scrollToBottom();
   }, [messages, loading]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -98,8 +93,7 @@ export default function ChatPage() {
     const content = (text || input).trim();
     if (!content || loading) return;
 
-    // Upload the staged file before sending so the server's file context is
-    // up-to-date when it processes this message.
+    // uplad  staged file before sending 
     if (pendingFile) {
       setUploading(true);
       try {
@@ -127,7 +121,6 @@ export default function ChatPage() {
     const assistantId = crypto.randomUUID();
     setMessages(prev => [...prev, { role: 'assistant', content: '', id: assistantId, streaming: true }]);
 
-    // Create a fresh AbortController for this request.
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -162,12 +155,11 @@ export default function ChatPage() {
                 m.id === assistantId ? { ...m, streaming: false } : m
               ));
             }
-          } catch { }
+          } catch { /* ignore malformed SSE line */ }
         }
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        // User cancelled — mark the message as stopped, keep partial content.
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, streaming: false, stopped: true } : m
         ));
@@ -198,7 +190,6 @@ export default function ChatPage() {
     if (!file) return;
     setPendingFile(file);
     e.target.value = '';
-    // Focus the textarea so the user can immediately type a prompt about the file
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
@@ -223,7 +214,6 @@ export default function ChatPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-base)' }}>
-      {/* Header */}
       <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-surface)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <TemplateSelector selected={selectedTemplate} onChange={setSelectedTemplate} />
@@ -238,7 +228,6 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Messages */}
       <div ref={containerRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', position: 'relative' }}>
         {isEmpty ? (
           <div className="fade-in" style={{ maxWidth: 580, margin: '40px auto 0', textAlign: 'center' }}>
@@ -323,7 +312,6 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Scroll to bottom button */}
       {showScrollBtn && (
         <button onClick={scrollToBottom} style={{
           position: 'absolute', bottom: 90, right: 24,
@@ -337,11 +325,9 @@ export default function ChatPage() {
         </button>
       )}
 
-      {/* Input area */}
       <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
         <div style={{ maxWidth: 760, margin: '0 auto' }}>
 
-          {/* Staged file chip — shown before the message is sent */}
           {pendingFile && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,

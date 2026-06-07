@@ -1,9 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Prevent socket-level errors (ECONNRESET, ECONNREFUSED, TLS failures) from
-// crashing the server when they escape internal error handlers as either a
-// synchronous uncaught exception or an unhandled promise rejection.
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception (server kept alive):', err.message);
 });

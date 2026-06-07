@@ -20,6 +20,7 @@ import {
   updateTemplate,
   deleteTemplate,
   buildSystemPrompt,
+  seedDefaultTemplates,
   DEFAULT_TEMPLATES,
 } from '../../../services/templateService.js';
 
@@ -217,5 +218,62 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('{{');
     expect(prompt).not.toContain('}}');
     expect(prompt).toContain('advanced');
+  });
+});
+
+describe('seedDefaultTemplates', () => {
+  it('writes all default templates when the file is empty (null)', async () => {
+    readJSON.mockResolvedValue(null);
+
+    await seedDefaultTemplates();
+
+    expect(writeJSON).toHaveBeenCalledOnce();
+    const [, written] = writeJSON.mock.calls[0];
+    const ids = written.map(t => t.id);
+    expect(ids).toContain('default-explain');
+    expect(ids).toContain('default-exercise');
+    expect(ids).toContain('default-feedback');
+    expect(ids).toContain('default-debug');
+    expect(ids).toContain('default-quiz');
+  });
+
+  it('writes all default templates when the file is an empty array', async () => {
+    readJSON.mockResolvedValue([]);
+
+    await seedDefaultTemplates();
+
+    expect(writeJSON).toHaveBeenCalledOnce();
+    const [, written] = writeJSON.mock.calls[0];
+    expect(written.length).toBeGreaterThanOrEqual(DEFAULT_TEMPLATES.length);
+  });
+
+  it('updates a default template whose systemPrompt has changed', async () => {
+    const stale = { ...DEFAULT_TEMPLATES[0], systemPrompt: 'outdated prompt' };
+    readJSON.mockResolvedValue([stale]);
+
+    await seedDefaultTemplates();
+
+    expect(writeJSON).toHaveBeenCalledOnce();
+    const [, written] = writeJSON.mock.calls[0];
+    const refreshed = written.find(t => t.id === DEFAULT_TEMPLATES[0].id);
+    expect(refreshed.systemPrompt).toBe(DEFAULT_TEMPLATES[0].systemPrompt);
+  });
+
+  it('skips the write entirely when all default templates are already up to date', async () => {
+    readJSON.mockResolvedValue([...DEFAULT_TEMPLATES]);
+
+    await seedDefaultTemplates();
+
+    expect(writeJSON).not.toHaveBeenCalled();
+  });
+
+  it('preserves existing user-created (non-default) templates during seed', async () => {
+    readJSON.mockResolvedValue([USER_TEMPLATE]);
+
+    await seedDefaultTemplates();
+
+    expect(writeJSON).toHaveBeenCalledOnce();
+    const [, written] = writeJSON.mock.calls[0];
+    expect(written.some(t => t.id === 'tmpl-custom')).toBe(true);
   });
 });

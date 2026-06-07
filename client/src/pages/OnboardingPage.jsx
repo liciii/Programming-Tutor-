@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { Fragment, useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -7,10 +7,9 @@ import { Code2, Send, CheckCircle2, MessageSquare, FlaskConical, Sparkles } from
 const WELCOME_MSG = {
   id: 'welcome',
   role: 'assistant',
-  content: "Hi!  I'm your CodeTutor onboarding assistant. I'll ask you a few questions to personalise your learning experience — it only takes a couple of minutes.\n\nLet's start: what programming language are you looking to learn or improve in, and what's drawing you to it?",
+  content: "Hi!  I'm your CodeTutor onboarding assistant. I'll ask you a few questions to personalise your learning experience, it only takes a couple of minutes.\n\nLet's start: what programming language are you looking to learn or improve in, and what's drawing you to it?",
 };
 
-// Phase metadata shown in the header progress bar
 const PHASES = [
   { id: 1, label: 'About you',   icon: <MessageSquare size={12} />,  description: 'Goals & preferences' },
   { id: 2, label: 'Quick check', icon: <FlaskConical size={12} />,   description: 'A couple of knowledge questions' },
@@ -36,7 +35,6 @@ export default function OnboardingPage() {
     if (!loading) inputRef.current?.focus();
   }, [loading]);
 
-  // Auto-grow textarea
   const handleInputChange = (e) => {
     setInput(e.target.value);
     e.target.style.height = 'auto';
@@ -58,7 +56,6 @@ export default function OnboardingPage() {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),
       });
 
-      // Update phase indicator from server response
       if (data.phase) setPhase(data.phase);
 
       setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: data.reply }]);
@@ -67,7 +64,7 @@ export default function OnboardingPage() {
         setPhase(3);
         setDone(true);
       }
-    } catch (err) {
+    } catch {
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -84,15 +81,13 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-base)' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-base)' }}>
 
-      {/* ── Header ── */}
       <div style={{
         padding: '14px 24px', borderBottom: '1px solid var(--border)',
         background: 'var(--bg-surface)', flexShrink: 0,
       }}>
         <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 28, height: 28, background: 'var(--accent)', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Code2 size={15} color="#fff" />
@@ -100,13 +95,12 @@ export default function OnboardingPage() {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15 }}>CodeTutor AI</span>
           </div>
 
-          {/* Phase stepper */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {PHASES.map((p, i) => {
               const isActive = phase === p.id;
               const isDone = phase > p.id || done;
               return (
-                <React.Fragment key={p.id}>
+                <Fragment key={p.id}>
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 5,
                     padding: '4px 10px', borderRadius: 0,
@@ -127,13 +121,12 @@ export default function OnboardingPage() {
                   {i < PHASES.length - 1 && (
                     <div style={{ width: 16, height: 1, background: phase > p.id ? 'var(--green)' : 'var(--border)', transition: 'background 0.3s' }} />
                   )}
-                </React.Fragment>
+                </Fragment>
               );
             })}
           </div>
         </div>
 
-        {/* Phase description sub-line */}
         <div style={{ maxWidth: 700, margin: '6px auto 0' }}>
           <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
             {phase === 1 && 'Telling us about your goals and learning style'}
@@ -143,11 +136,9 @@ export default function OnboardingPage() {
         </div>
       </div>
 
-      {/* ── Messages ── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px' }}>
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
 
-          {/* Phase 2 transition notice — shown once the diagnostic phase begins */}
           {phase >= 2 && (
             <div className="fade-in" style={{
               display: 'flex', alignItems: 'center', gap: 8,
@@ -158,7 +149,7 @@ export default function OnboardingPage() {
               fontSize: 12, color: 'var(--text-secondary)',
             }}>
               <FlaskConical size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
-              To make sure your tutor pitches things at exactly the right level, I'll ask a couple of short knowledge questions. There are no wrong answers — this just helps me understand where you actually are.
+              To make sure your tutor pitches things at exactly the right level, I'll ask a couple of short knowledge questions. There are no wrong answers, this just helps me understand where you actually are.
             </div>
           )}
 
@@ -205,7 +196,7 @@ export default function OnboardingPage() {
         </div>
       </div>
 
-      {/* ── Input ── */}
+      {/* Input */}
       {!done && (
         <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
           <div style={{ maxWidth: 700, margin: '0 auto' }}>
@@ -256,7 +247,6 @@ export default function OnboardingPage() {
   );
 }
 
-// ── Sub-components ──
 
 function Avatar() {
   return (

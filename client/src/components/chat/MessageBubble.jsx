@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -25,7 +25,7 @@ function CopyButton({ code }) {
 }
 
 const markdownComponents = {
-  code({ node, className, children, ...props }) {
+  code({ node: _node, className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || '');
     const code = String(children).replace(/\n$/, '');
     if (match) {
@@ -103,7 +103,6 @@ export default function MessageBubble({ message }) {
       gap: 10,
       marginBottom: 16,
     }}>
-      {/* Avatar */}
       <div style={{
         width: 30, height: 30, borderRadius: '50%', flexShrink: 0, marginTop: 2,
         background: isUser ? 'var(--bg-elevated)' : 'var(--accent)',
@@ -116,7 +115,6 @@ export default function MessageBubble({ message }) {
         }
       </div>
 
-      {/* Bubble */}
       <div style={{
         maxWidth: '82%',
         padding: isUser ? '10px 14px' : '14px 18px',

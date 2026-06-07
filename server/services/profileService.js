@@ -21,7 +21,6 @@ export async function saveProfile(userId, profile) {
   return data;
 }
 
-// Atomic read-merge-write — safe under concurrent requests.
 export async function updateProfile(userId, updates) {
   return updateJSON(profilePath(userId), (existing) => ({
     ...(existing ?? {}),
@@ -56,9 +55,9 @@ export async function appendChatHistory(userId, chat) {
   });
 }
 
-// Atomically appends one diagnostic evidence object to the array.
-// Reads the current array inside the updater so concurrent Phase 2 turns
-// can't overwrite each other's evidence.
+// auto adds one diagnostic evidence object to the array
+// reads the current array inside the updater so concurrent Phase 2 turns
+// can't overwrite each other's evidence
 export async function appendDiagnosticEvidence(userId, evidence) {
   return updateJSON(profilePath(userId), (profile) => {
     if (!profile) return null;
@@ -80,7 +79,6 @@ export async function createEmptyProfile(userId) {
     sessionHistory: [],
     chatHistory: [],
     files: [],
-    externalSources: [],
     onboardingComplete: false,
     onboardingPhase: 1,
     preferredLLM: 'openai',

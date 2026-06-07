@@ -34,7 +34,7 @@ export async function updateUser(id, updates) {
   await updateJSON(USERS_FILE, (users) => {
     const list = users ?? [];
     const idx = list.findIndex(u => u.id === id);
-    if (idx === -1) return null; // user not found — skip write
+    if (idx === -1) return null; // user not found, skip write
     const next = [...list];
     next[idx] = { ...next[idx], ...updates };
     updated = next[idx];
@@ -48,7 +48,7 @@ export async function setResetToken(email, token, expiry) {
   await updateJSON(USERS_FILE, (users) => {
     const list = users ?? [];
     const idx = list.findIndex(u => u.email === email.toLowerCase());
-    if (idx === -1) return null; // no such user — skip write, don't reveal existence
+    if (idx === -1) return null; // no such user, don't write (avoids revealing existence)
     found = true;
     const next = [...list];
     next[idx] = { ...next[idx], resetToken: token, resetTokenExpiry: expiry };
@@ -68,7 +68,7 @@ export async function clearResetToken(id) {
     const idx = list.findIndex(u => u.id === id);
     if (idx === -1) return null;
     const next = [...list];
-    const { resetToken, resetTokenExpiry, ...rest } = next[idx];
+    const { resetToken: _rt, resetTokenExpiry: _rte, ...rest } = next[idx];
     next[idx] = rest;
     return next;
   });

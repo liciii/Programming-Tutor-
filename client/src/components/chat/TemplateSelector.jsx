@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
 import { ChevronDown, Sparkles, BookOpen, Code, Bug, HelpCircle, Star } from 'lucide-react';
 
@@ -46,7 +46,6 @@ export default function TemplateSelector({ selected, onChange }) {
           borderRadius: 'var(--radius-lg)', padding: 6, minWidth: 220,
           boxShadow: 'var(--shadow-lg)',
         }}>
-          {/* Auto-detect option */}
           <button
             onClick={() => { onChange(null); setOpen(false); }}
             style={{

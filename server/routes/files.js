@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { unlink } from 'fs/promises';
-import { join, dirname } from 'path';
+import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { getProfile, updateProfile } from '../services/profileService.js';
@@ -12,7 +12,7 @@ const __dirname = dirname(__filename);
 const UPLOAD_DIR = join(__dirname, '../data/uploads');
 const MAX_FILES_PER_USER = 20;
 
-// Explicit MIME whitelist — block HTML/scripts to prevent stored XSS
+// MIME whitelist for non-code file types.
 const ALLOWED_MIME = new Set([
   'text/plain',
   'text/markdown',
@@ -20,16 +20,40 @@ const ALLOWED_MIME = new Set([
   'text/csv',
   'application/json',
   'application/pdf',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'image/png',
   'image/jpeg',
   'image/gif',
   'image/webp',
 ]);
 
+// Extension-based whitelist for code files. 
+const CODE_EXTENSIONS = new Set([
+  // sys/comp
+  '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp',
+  '.cs', '.go', '.rs', '.swift',
+  // jvm
+  '.java', '.kt', '.kts', '.scala', '.groovy',
+  // scripting
+  '.py', '.rb', '.php', '.lua', '.pl', '.pro',
+  // web
+  '.js', '.mjs', '.ts', '.jsx', '.tsx',
+  '.html', '.htm', '.css', '.scss', '.sass', '.less',
+  '.vue', '.svelte',
+  // shell / config
+  '.sh', '.bash', '.zsh', '.fish',
+  '.xml', '.yaml', '.yml', '.toml',
+  // data / query
+  '.sql', '.r',
+  // other academic langu
+  '.hs', '.ex', '.exs', '.erl', '.ml', '.mli',
+  '.m',   // MATLAB / octave
+  '.f', '.f90', '.f95', // fortran
+]);
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  // Use an opaque UUID as the disk filename so the URL is unguessable.
-  // The original name is preserved in profile metadata only.
   filename: (_req, _file, cb) => cb(null, randomUUID()),
 });
 
@@ -37,7 +61,8 @@ const upload = multer({
   storage,
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_MIME.has(file.mimetype)) {
+    const ext = extname(file.originalname).toLowerCase();
+    if (CODE_EXTENSIONS.has(ext) || ALLOWED_MIME.has(file.mimetype)) {
       cb(null, true);
     } else {
       cb(new Error(`File type not allowed: ${file.mimetype}`));
@@ -47,7 +72,7 @@ const upload = multer({
 
 const router = express.Router();
 
-// Authenticated file download — checks that the file belongs to the requesting user.
+// file download; checks that the file belongs to the requesting user.
 router.get('/:fileId', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -92,11 +117,14 @@ router.post('/upload', (req, res) => {
         return res.status(400).json({ error: `File limit reached (max ${MAX_FILES_PER_USER} files). Delete some files before uploading more.` });
       }
 
+      const ext = extname(req.file.originalname).toLowerCase();
       const fileMeta = {
-        id:         req.file.filename,                   // UUID — also the disk filename
+        id:         req.file.filename,                   // UUID, also the disk filename
         name:       req.file.originalname,               // original name for display/download
         path:       `/api/files/${req.file.filename}`,   // authenticated download URL
-        mimeType:   req.file.mimetype,
+        // normalise code files to text/plain; browser MIME for src files is
+        // unreliable and buildFileContext keys off this field for extraction
+        mimeType:   CODE_EXTENSIONS.has(ext) ? 'text/plain' : req.file.mimetype,
         size:       req.file.size,
         uploadedAt: new Date().toISOString(),
       };
@@ -123,7 +151,6 @@ router.delete('/:fileId', async (req, res) => {
     const file = (profile.files || []).find(f => f.id === fileId);
     if (!file) return res.status(404).json({ error: 'File not found' });
 
-    // Remove from disk (best-effort — don't fail if already gone)
     const diskPath = join(UPLOAD_DIR, fileId);
     await unlink(diskPath).catch(() => {});
 

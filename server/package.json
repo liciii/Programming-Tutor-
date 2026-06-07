@@ -7,12 +7,13 @@
     "start": "node index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.0",
     "@google/generative-ai": "^0.24.1",
-    "all": "^0.0.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -24,10 +25,14 @@
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^8.0.10",
     "openai": "^4.28.0",
+    "pdf-parse": "^1.1.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.7",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "nodemon": "^3.0.3",
     "supertest": "^7.2.2",
     "vitest": "^4.1.7"

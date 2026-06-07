@@ -14,15 +14,13 @@ function createTransport() {
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 15_000,
-    // Print the full SMTP conversation to the server console so you can see
-    // exactly what Gmail accepts or rejects.
+    // print the full SMTP conversation to server console so you can see
+    // exactly what Gmail accepts or rejects
     logger: true,
     debug: true,
   });
 }
 
-// Uses the callback form of sendMail — errors that escape nodemailer's internal
-// promise chain still surface here, rather than crashing the process.
 export function sendPasswordResetEmail(to, token) {
   return new Promise((resolve, reject) => {
     let transporter;

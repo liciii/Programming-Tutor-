@@ -20,7 +20,7 @@ async function request(method, path, body) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
-  // Safely parse the response — guard against empty bodies and non-JSON
+  // Parse the response carefully; guard against empty bodies and non-JSON
   // responses (e.g. a 502 proxy error page or an accidental res.end()).
   let data = {};
   const ct = res.headers.get('content-type') || '';
@@ -81,7 +81,7 @@ export const api = {
   resetPassword: (token, password) => request('POST', '/auth/reset-password', { token, password }),
 };
 
-// Streaming chat — returns a ReadableStream reader.
+// Streaming chat, returns a ReadableStream reader.
 // Pass an AbortSignal to support mid-stream cancellation.
 export async function streamChat(messages, templateId, signal) {
   const token = getToken();

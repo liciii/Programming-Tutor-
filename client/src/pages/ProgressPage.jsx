@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { TrendingUp, BookOpen, Zap, Target, Calendar } from 'lucide-react';
 
@@ -14,13 +14,12 @@ export default function ProgressPage() {
   }
 
   const calculateStreak = () => {
-    if (!profile.sessionHistory?.length) return 0;
+    if (!profile.chatHistory?.length) return 0;
     const DAY_MS = 86_400_000;
 
-    // Build a set of unique calendar days (midnight local time) that have sessions.
     const sessionDays = new Set(
-      profile.sessionHistory.map(h => {
-        const d = new Date(h.timestamp);
+      profile.chatHistory.map(h => {
+        const d = new Date(h.createdAt);
         d.setHours(0, 0, 0, 0);
         return d.getTime();
       })
@@ -30,8 +29,6 @@ export default function ProgressPage() {
     today.setHours(0, 0, 0, 0);
     const todayMs = today.getTime();
 
-    // Start from today if there's a session, otherwise from yesterday.
-    // If neither has a session the streak is 0.
     let start = todayMs;
     if (!sessionDays.has(todayMs)) {
       start = todayMs - DAY_MS;
@@ -46,11 +43,10 @@ export default function ProgressPage() {
   };
 
   const streak = calculateStreak();
-  const totalSessions = profile.sessionHistory?.length || 0;
+  const totalSessions = profile.chatHistory?.length || 0;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
-      {/* Header */}
       <div style={{ padding: '24px', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, marginBottom: 4 }}>
           Your Progress
@@ -61,7 +57,6 @@ export default function ProgressPage() {
       </div>
 
       <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
-        {/* Quick Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 32 }}>
           <StatCard
             icon={<BookOpen size={20} />}
@@ -89,9 +84,7 @@ export default function ProgressPage() {
           />
         </div>
 
-        {/* Skills Section */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 32 }}>
-          {/* Strengths */}
           <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', padding: '20px', border: '1px solid var(--border)' }}>
             <h3 style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent)' }}>
               <Zap size={16} /> Strengths
@@ -113,7 +106,6 @@ export default function ProgressPage() {
             </div>
           </div>
 
-          {/* Weaknesses */}
           <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', padding: '20px', border: '1px solid var(--border)' }}>
             <h3 style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, color: '#ff6b6b' }}>
               <Target size={16} /> Areas to Improve
@@ -136,7 +128,6 @@ export default function ProgressPage() {
           </div>
         </div>
 
-        {/* Topics Progress */}
         <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', padding: '20px', border: '1px solid var(--border)', marginBottom: 32 }}>
           <h3 style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
             <BookOpen size={16} /> Topics Covered in Sessions
@@ -159,12 +150,11 @@ export default function ProgressPage() {
                 </div>
               ))
             ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No topics covered yet — start a tutoring session to track progress here</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No topics covered yet. Start a tutoring session to track progress here</p>
             )}
           </div>
         </div>
 
-        {/* Recent Activity */}
         <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', padding: '20px', border: '1px solid var(--border)' }}>
           <h3 style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Calendar size={16} /> Recent Sessions

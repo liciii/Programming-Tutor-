@@ -1,6 +1,11 @@
 node_modules/
 .env
-server/data/users/
-server/data/profiles/
+.env.local
+.env.*.local
+server/data/
 dist/
+coverage/
 .DS_Store
+Thumbs.db
+npm-debug.log*
+.eslintcache

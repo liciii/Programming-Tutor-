@@ -51,7 +51,7 @@ const MOCK_USER = () => ({
   password: TEST_HASH,
 });
 
-// ── Register ──────────────────────────────────────────────────────────────────
+// refiister
 
 describe('POST /api/auth/register', () => {
   it('creates a user and returns a token', async () => {
@@ -89,7 +89,7 @@ describe('POST /api/auth/register', () => {
   });
 });
 
-// ── Login ─────────────────────────────────────────────────────────────────────
+// login
 
 describe('POST /api/auth/login', () => {
   it('returns token and profile flag for valid credentials', async () => {
@@ -134,7 +134,6 @@ describe('POST /api/auth/login', () => {
   });
 });
 
-// ── Me ────────────────────────────────────────────────────────────────────────
 
 describe('GET /api/auth/me', () => {
   it('returns user info for a valid token', async () => {
@@ -175,7 +174,7 @@ describe('GET /api/auth/me', () => {
   });
 });
 
-// ── Forgot password ───────────────────────────────────────────────────────────
+//forgor password
 
 describe('POST /api/auth/forgot-password', () => {
   it('returns 400 when email is missing', async () => {
@@ -208,8 +207,7 @@ describe('POST /api/auth/forgot-password', () => {
   });
 });
 
-// ── Reset password ────────────────────────────────────────────────────────────
-
+//reset password
 describe('POST /api/auth/reset-password', () => {
   it('returns 400 when token or password is missing', async () => {
     const res = await request(app).post('/api/auth/reset-password').send({ token: 'abc' });
@@ -264,5 +262,96 @@ describe('POST /api/auth/reset-password', () => {
     expect(res.body.message).toBeDefined();
     expect(updateUser).toHaveBeenCalledWith('user-1', expect.objectContaining({ password: expect.any(String) }));
     expect(clearResetToken).toHaveBeenCalledWith('user-1');
+  });
+});
+
+// 500 error paths
+describe('POST /api/auth/register — server error', () => {
+  it('returns 500 when createUser throws', async () => {
+    findUserByEmail.mockReturnValue(undefined);
+    createUser.mockRejectedValue(new Error('DB failure'));
+
+    const res = await request(app).post('/api/auth/register').send({
+      name: 'Alice',
+      email: 'alice@test.com',
+      password: 'password123',
+    });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('POST /api/auth/login — server error', () => {
+  it('returns 500 when findUserByEmail throws', async () => {
+    findUserByEmail.mockRejectedValue(new Error('DB failure'));
+
+    const res = await request(app).post('/api/auth/login').send({
+      email: 'alice@test.com',
+      password: 'password123',
+    });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('POST /api/auth/forgot-password — server error', () => {
+  it('returns 500 when setResetToken throws', async () => {
+    setResetToken.mockRejectedValue(new Error('DB failure'));
+
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'alice@test.com' });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('POST /api/auth/reset-password — server error', () => {
+  it('returns 500 when updateUser throws', async () => {
+    findUserByResetToken.mockResolvedValue({
+      id: 'user-1',
+      resetToken: 'tok',
+      resetTokenExpiry: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    updateUser.mockRejectedValue(new Error('DB write failure'));
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: 'tok', password: 'newpassword123' });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('GET /api/auth/me — server error', () => {
+  it('returns 500 when findUserById throws', async () => {
+    const token = jwt.sign({ id: 'user-1' }, SECRET);
+    findUserById.mockRejectedValue(new Error('DB failure'));
+
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('POST /api/auth/register — validation edge cases', () => {
+  it('returns 400 for an invalid email format', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      name: 'Alice',
+      email: 'not-an-email',
+      password: 'password123',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when password is too short', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      name: 'Alice',
+      email: 'alice@test.com',
+      password: 'short',
+    });
+    expect(res.status).toBe(400);
   });
 });

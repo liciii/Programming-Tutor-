@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Code2, BookOpen, Zap, ArrowRight } from 'lucide-react';
@@ -8,7 +8,7 @@ export default function AuthPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, register, onboardingComplete } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -34,7 +34,6 @@ export default function AuthPage() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-base)' }}>
-      {/* Left panel */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '60px', background: 'linear-gradient(135deg, #0f1117 0%, #161b27 100%)',
@@ -53,7 +52,7 @@ export default function AuthPage() {
             <span style={{ color: 'var(--accent)' }}>programming mentor</span>
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.7, marginBottom: 48, maxWidth: 380 }}>
-            An AI tutor that adapts to your skill level, learning style, and goals, giving you personalized guidance every step of the way!
+            An AI tutor that adapts to your skill level, learning style, and goals. Giving you personalized guidance every step of the way!
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {[
@@ -75,7 +74,6 @@ export default function AuthPage() {
         </div>
       </div>
 
-      {/* Right panel - form */}
       <div style={{ width: 480, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
         <div style={{ width: '100%', maxWidth: 380 }} className="fade-in">
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, marginBottom: 6 }}>

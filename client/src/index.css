@@ -55,12 +55,10 @@ input, textarea {
 
 a { color: var(--accent); text-decoration: none; }
 
-/* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-/* Animations */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -69,7 +67,6 @@ a { color: var(--accent); text-decoration: none; }
 .fade-in { animation: fadeIn 0.25s ease forwards; }
 .slide-in { animation: slideInLeft 0.2s ease forwards; }
 
-/* Common components */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -123,7 +120,6 @@ a { color: var(--accent); text-decoration: none; }
 .tag-green { background: var(--green-muted); color: var(--green); }
 .tag-amber { background: rgba(251,191,36,0.12); color: var(--amber); }
 
-/* Spinner */
 .spinner {
   width: 16px; height: 16px;
   border: 2px solid var(--border);
@@ -132,7 +128,6 @@ a { color: var(--accent); text-decoration: none; }
   animation: spin 0.7s linear infinite;
 }
 
-/* Typing dots */
 .typing-dots span {
   display: inline-block;
   width: 5px; height: 5px;

@@ -18,7 +18,6 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
     volumes:
-      # Persist user data (profiles, templates, uploads) across restarts
       - tutor_data:/app/data
     restart: unless-stopped
 
